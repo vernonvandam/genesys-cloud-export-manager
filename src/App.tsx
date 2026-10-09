@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
 import platformClient from 'purecloud-platform-client-v2'
+import {
+  AlertBlock,
+  DxButton,
+} from 'genesys-react-components'
+import {
+  GenesysDevIcon,
+  GenesysDevIcons,
+} from 'genesys-dev-icons'
+
+import './App.scss'
 
 type GenesysUser = {
   id?: string
@@ -18,10 +28,11 @@ const CONFIG_KEY = 'genesys-app-config'
 function getConfig(): GenesysConfig {
   const params = new URLSearchParams(window.location.search)
 
-  // Accept both plain parameter names and Genesys-style names.
   const fromUrl: Partial<GenesysConfig> = {
-    clientId: params.get('clientId') || params.get('gc_clientId') || '',
-    region: params.get('region') || params.get('gc_region') || '',
+    clientId:
+      params.get('clientId') || params.get('gc_clientId') || '',
+    region:
+      params.get('region') || params.get('gc_region') || '',
     redirectUri:
       params.get('redirectUri') ||
       params.get('redirectURI') ||
@@ -29,11 +40,12 @@ function getConfig(): GenesysConfig {
       '',
   }
 
-  // Retain non-secret configuration across the OAuth redirect.
   let saved: Partial<GenesysConfig> = {}
 
   try {
-    saved = JSON.parse(sessionStorage.getItem(CONFIG_KEY) || '{}')
+    saved = JSON.parse(
+      sessionStorage.getItem(CONFIG_KEY) || '{}',
+    )
   } catch {
     saved = {}
   }
@@ -44,7 +56,6 @@ function getConfig(): GenesysConfig {
     redirectUri: fromUrl.redirectUri || saved.redirectUri || '',
   }
 
-  // Save configuration only when all required values are available.
   if (config.clientId && config.region && config.redirectUri) {
     sessionStorage.setItem(CONFIG_KEY, JSON.stringify(config))
   }
@@ -104,55 +115,131 @@ export default function App() {
       void login()
     }
 
-    // Run on initial page load only.
+    // Resume PKCE after redirect; preserve the existing login flow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const alertType =
+    status === 'Authenticated successfully'
+      ? 'success'
+      : status === 'Authentication failed' ||
+          status === 'Configuration missing'
+        ? 'critical'
+        : 'info'
+
+  const statusMessage =
+    error ||
+    (status === 'Authenticated successfully'
+      ? 'Your Genesys Cloud identity was verified successfully.'
+      : status === 'Connecting to Genesys Cloud...'
+        ? 'Continue the sign-in process in Genesys Cloud.'
+        : status === 'Loading user details...'
+          ? 'Retrieving the authenticated user profile.'
+          : 'Sign in to verify access to your Genesys Cloud organisation.')
+
   return (
-    <main style={{ maxWidth: 720, margin: '60px auto', padding: 24 }}>
-      <h1>Genesys Cloud Export Manager</h1>
-      <h2>Authentication</h2>
+    <div className="genesys-app genesys-app-light">
+      <main className="auth-card">
+        <header className="auth-heading">
+          <GenesysDevIcon
+            icon={GenesysDevIcons.AppShieldCheck}
+            className="auth-brand-icon"
+          />
+          <div>
+            <h1 className="auth-title">
+              Genesys Cloud Export Manager
+            </h1>
+          </div>
+        </header>
 
-      <p>
-        <strong>Client ID:</strong>{' '}
-        {config.clientId ? 'Configured' : 'Missing'}
-      </p>
-      <p>
-        <strong>Region:</strong>{' '}
-        {config.region || 'Missing'}
-      </p>
-      <p>
-        <strong>Redirect URI:</strong>{' '}
-        {config.redirectUri || 'Missing'}
-      </p>
-      <p>
-        <strong>Status:</strong> {status}
-      </p>
+        <h2 className="auth-subtitle">Authentication</h2>
 
-      {!user && (
-        <button
-          onClick={() => void login()}
-          disabled={status === 'Connecting to Genesys Cloud...'}
-          style={{ padding: '10px 18px', cursor: 'pointer' }}
+        <div className="config-list">
+          <div className="config-row">
+            <span className="config-label">Client ID</span>
+            <span className="config-value">
+              {config.clientId ? 'Configured' : 'Missing'}
+            </span>
+          </div>
+
+          <div className="config-row">
+            <span className="config-label">Region</span>
+            <span className="config-value">
+              {config.region || 'Missing'}
+            </span>
+          </div>
+
+          <div className="config-row">
+            <span className="config-label">Redirect URI</span>
+            <span className="config-value">
+              {config.redirectUri || 'Missing'}
+            </span>
+          </div>
+        </div>
+
+        <AlertBlock
+          alertType={alertType}
+          title={status}
+          className="auth-status"
         >
-          Login with Genesys Cloud
-        </button>
-      )}
+          {statusMessage}
+        </AlertBlock>
 
-      {user && (
-        <section>
-          <h3>Authenticated User</h3>
-          <p><strong>Name:</strong> {user.name || 'Not provided'}</p>
-          <p><strong>Email:</strong> {user.email || 'Not provided'}</p>
-          <p><strong>User ID:</strong> {user.id || 'Not provided'}</p>
-        </section>
-      )}
+        {!user && (
+          <div className="auth-actions">
+            <DxButton
+              type="primary"
+              disabled={
+                status === 'Connecting to Genesys Cloud...' ||
+                status === 'Loading user details...'
+              }
+              onClick={() => void login()}
+            >
+              Login with Genesys Cloud
+            </DxButton>
+          </div>
+        )}
 
-      {error && (
-        <pre style={{ color: 'crimson', whiteSpace: 'pre-wrap' }}>
-          {error}
-        </pre>
-      )}
-    </main>
+        {!user && (
+          <p className="auth-help">
+            Authentication uses Authorization Code with PKCE.
+            No client secret is required in this browser application.
+          </p>
+        )}
+
+        {user && (
+          <section className="auth-user">
+            <div className="auth-user-heading">
+              <GenesysDevIcon
+                icon={GenesysDevIcons.AppUserSolid}
+                className="auth-user-icon"
+              />
+              <h3>Authenticated User</h3>
+            </div>
+
+            <div className="config-list">
+              <div className="config-row">
+                <span className="config-label">Name</span>
+                <span className="config-value">
+                  {user.name || 'Not provided'}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">Email</span>
+                <span className="config-value">
+                  {user.email || 'Not provided'}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">User ID</span>
+                <span className="config-value">
+                  {user.id || 'Not provided'}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
   )
 }

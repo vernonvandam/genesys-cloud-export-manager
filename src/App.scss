@@ -1,0 +1,166 @@
+@import '../node_modules/genesys-react-components/src/theme/variables.scss';
+@import '../node_modules/genesys-react-components/src/theme/typography.scss';
+@import '../node_modules/genesys-react-components/src/theme/scrollbars.scss';
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: block;
+  min-width: 320px;
+}
+
+#root {
+  max-width: none;
+  text-align: left;
+}
+
+html,
+body,
+button,
+input {
+  font-family: 'Roboto', sans-serif;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.genesys-app-light {
+  @include writeCssVars($theme-vars);
+}
+
+.genesys-app-dark {
+  @include writeCssVars($theme-vars-dark);
+}
+
+.genesys-app {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 48px 24px;
+  color: var($--theme-core-text-color);
+  background-color: var($--theme-core-background-color);
+}
+
+.auth-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px;
+  border: 1px solid var($--theme-core-layout-border-color);
+  border-radius: 8px;
+  background-color: var($--theme-core-control-background-color);
+  box-shadow: 0 2px 8px var($--theme-core-box-shadow-color);
+}
+
+.auth-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.auth-brand-icon {
+  flex-shrink: 0;
+  color: var($--theme-core-link-color);
+  font-size: 30px;
+}
+
+.auth-title {
+  margin: 0 !important;
+  font-size: 30px;
+  line-height: 40px;
+  font-weight: 300;
+}
+
+.auth-subtitle {
+  margin: 0 0 24px !important;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 400;
+}
+
+.config-list {
+  margin: 0 0 24px;
+  border-top: 1px solid var($--theme-core-layout-border-color);
+}
+
+.config-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var($--theme-core-layout-border-color);
+}
+
+.config-label {
+  color: var($--theme-core-control-label-color);
+  font-weight: 500;
+}
+
+.config-value {
+  overflow-wrap: anywhere;
+}
+
+.auth-status {
+  margin: 20px 0;
+}
+
+.auth-actions {
+  margin-top: 24px;
+}
+
+.auth-help {
+  margin-top: 16px;
+  color: var($--theme-core-control-label-color);
+  font-size: 13px;
+}
+
+.auth-user {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var($--theme-core-layout-border-color);
+}
+
+.auth-user-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.auth-user-heading h3 {
+  margin: 0 !important;
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.auth-user-icon {
+  color: var($--theme-core-link-color);
+  font-size: 24px;
+}
+
+@media (max-width: 600px) {
+  .genesys-app {
+    padding: 24px 12px;
+  }
+
+  .auth-card {
+    padding: 22px 18px;
+  }
+
+  .config-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .auth-title {
+    font-size: 24px;
+    line-height: 32px;
+  }
+}

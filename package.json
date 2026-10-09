@@ -1,5 +1,5 @@
 {
-  "name": "genesys-cloud-export-manager-vite",
+  "name": "genesys-cloud-export-manager",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "buffer": "^6.0.3",
+    "genesys-dev-icons": "^1.6.0",
+    "genesys-react-components": "^1.2.3",
     "purecloud-platform-client-v2": "^264.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
@@ -24,6 +27,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
     "globals": "^15.11.0",
+    "sass": "^1.105.1",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.11.0",
     "vite": "^5.4.10"
