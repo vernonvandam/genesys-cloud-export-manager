@@ -7,21 +7,37 @@ import {
 import type { ReactNode } from 'react'
 import platformClient from 'purecloud-platform-client-v2'
 
-import { AuthContext } from './auth-context'
+import {
+  AuthContext,
+  type AuthMode,
+} from './auth-context'
 
 import type {
   GenesysConfig,
+  GenesysOrganization,
   GenesysUser,
 } from '../types/app'
 
 const CONFIG_KEY = 'genesys-app-config'
+const FLOW_MODE_KEY = 'genesys-auth-flow-mode'
 
-function getConfig(): GenesysConfig {
+
+function isCompleteConfig(
+  config: Partial<GenesysConfig>,
+): config is GenesysConfig {
+  return Boolean(
+    config.clientId?.trim() &&
+    config.region?.trim() &&
+    config.redirectUri?.trim(),
+  )
+}
+
+function getUrlConfig(): Partial<GenesysConfig> {
   const params = new URLSearchParams(
     window.location.search,
   )
 
-  const fromUrl: Partial<GenesysConfig> = {
+  return {
     clientId:
       params.get('clientId') ||
       params.get('gc_clientId') ||
@@ -36,42 +52,108 @@ function getConfig(): GenesysConfig {
       params.get('gc_redirectUrl') ||
       '',
   }
+}
 
-  let saved: Partial<GenesysConfig> = {}
-
+function readSavedConfig(): Partial<GenesysConfig> {
   try {
-    saved = JSON.parse(
+    const saved = JSON.parse(
       sessionStorage.getItem(CONFIG_KEY) || '{}',
     )
+
+    return {
+      clientId:
+        typeof saved.clientId === 'string'
+          ? saved.clientId
+          : '',
+      region:
+        typeof saved.region === 'string'
+          ? saved.region
+          : '',
+      redirectUri:
+        typeof saved.redirectUri === 'string'
+          ? saved.redirectUri
+          : '',
+    }
   } catch {
-    saved = {}
+    return {}
   }
+}
 
-  const config: GenesysConfig = {
-    clientId: fromUrl.clientId || saved.clientId || '',
-    region: fromUrl.region || saved.region || '',
-    redirectUri:
-      fromUrl.redirectUri || saved.redirectUri || '',
-  }
+function saveAuthConfig(
+  config: GenesysConfig,
+  mode: AuthMode,
+) {
+  sessionStorage.setItem(
+    CONFIG_KEY,
+    JSON.stringify(config),
+  )
 
-  if (
-    config.clientId &&
-    config.region &&
-    config.redirectUri
-  ) {
+  sessionStorage.setItem(FLOW_MODE_KEY, mode)
+}
+
+function getInitialAuthState(): {
+  config: GenesysConfig
+  mode: AuthMode
+} {
+  const params = new URLSearchParams(
+    window.location.search,
+  )
+
+  const urlConfig = getUrlConfig()
+
+  // A complete configuration means integrated launch.
+  // Save it for the subsequent OAuth redirect callback.
+  if (isCompleteConfig(urlConfig)) {
     try {
-      // Store only non-secret launch configuration
-      // across the OAuth redirect.
-      sessionStorage.setItem(
-        CONFIG_KEY,
-        JSON.stringify(config),
-      )
+      saveAuthConfig(urlConfig, 'integrated')
     } catch {
-      // Continue if session storage is unavailable.
+      // The login can start, but callback recovery
+      // requires session storage to be available.
+    }
+
+    return {
+      config: urlConfig,
+      mode: 'integrated',
     }
   }
 
-  return config
+  const isOAuthCallback =
+    params.has('code') || params.has('error')
+
+  // Restore saved configuration only for an OAuth callback.
+  // A normal browser visit should not silently reuse it.
+  if (isOAuthCallback) {
+    const savedConfig = readSavedConfig()
+
+    if (isCompleteConfig(savedConfig)) {
+      let savedMode: string | null = null
+
+      try {
+        savedMode = sessionStorage.getItem(FLOW_MODE_KEY)
+      } catch {
+        savedMode = null
+      }
+
+      return {
+        config: savedConfig,
+        mode:
+          savedMode === 'integrated'
+            ? 'integrated'
+            : 'standalone',
+      }
+    }
+  }
+
+  // Preserve partial URL values so the standalone
+  // connection form can prefill any supplied fields.
+  return {
+    config: {
+      clientId: urlConfig.clientId || '',
+      region: urlConfig.region || '',
+      redirectUri: urlConfig.redirectUri || '',
+    },
+    mode: 'standalone',
+  }
 }
 
 function cleanOAuthCallbackUrl() {
@@ -87,59 +169,140 @@ export function AuthProvider({
 }: {
   children: ReactNode
 }) {
-  const [config] = useState<GenesysConfig>(() => getConfig())
-  const [user, setUser] = useState<GenesysUser | null>(null)
-  const [status, setStatus] = useState('Not authenticated')
+  const [initialState] = useState(getInitialAuthState)
+
+  const [config, setConfig] =
+    useState<GenesysConfig>(initialState.config)
+
+  const [mode, setMode] =
+    useState<AuthMode>(initialState.mode)
+
+  const [user, setUser] =
+    useState<GenesysUser | null>(null)
+
+  const [organization, setOrganization] =
+    useState<GenesysOrganization | null>(null)
+
+  const [status, setStatus] =
+    useState('Not authenticated')
+
   const [error, setError] = useState('')
 
+  const authInProgress = useRef(false)
   const callbackHandled = useRef(false)
 
+  const authenticateWithConfig = useCallback(
+    async (selectedConfig: GenesysConfig) => {
+      if (authInProgress.current) return
+
+      setError('')
+
+      if (!isCompleteConfig(selectedConfig)) {
+        setStatus('Configuration missing')
+        setError(
+          'Client ID, region and redirect URI are required.',
+        )
+        return
+      }
+
+      authInProgress.current = true
+      setStatus('Connecting to Genesys Cloud...')
+
+      try {
+        const apiClient =
+          platformClient.ApiClient.instance
+
+        apiClient.setEnvironment(selectedConfig.region)
+
+        // Normal PKCE redirect flow. No popup options.
+        await apiClient.loginPKCEGrant(
+          selectedConfig.clientId,
+          selectedConfig.redirectUri,
+        )
+
+        setStatus('Loading user details...')
+
+        const usersApi = new platformClient.UsersApi()
+
+        const currentUser =
+          (await usersApi.getUsersMe()) as GenesysUser
+
+        const organizationApi =
+          new platformClient.OrganizationApi()
+
+        const currentOrganization =
+          (await organizationApi.getOrganizationsMe()) as
+            GenesysOrganization
+
+        if (!currentOrganization?.id) {
+          throw new Error(
+            'Login succeeded, but the Genesys organisation could not be identified.',
+          )
+        }
+
+        setUser(currentUser)
+        setOrganization(currentOrganization)
+        setStatus('Authenticated successfully')
+
+        cleanOAuthCallbackUrl()
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : String(err)
+
+        setError(message)
+        setStatus('Authentication failed')
+
+        if (
+          new URLSearchParams(window.location.search).has(
+            'code',
+          )
+        ) {
+          cleanOAuthCallbackUrl()
+        }
+      } finally {
+        authInProgress.current = false
+      }
+    },
+    [],
+  )
+
+  // Used by the login button and to finish an OAuth callback.
   const login = useCallback(async () => {
-    setError('')
+    await authenticateWithConfig(config)
+  }, [authenticateWithConfig, config])
 
-    if (
-      !config.clientId ||
-      !config.region ||
-      !config.redirectUri
-    ) {
-      setStatus('Configuration missing')
-      setError(
-        'Provide clientId, region and redirectUri as URL parameters.',
-      )
-      return
-    }
+  // Used by the standalone Genesys onboarding form.
+  const startGenesysLogin = useCallback(
+    async (selectedConfig: GenesysConfig) => {
+      setError('')
 
-    setStatus('Connecting to Genesys Cloud...')
+      if (!isCompleteConfig(selectedConfig)) {
+        setStatus('Configuration missing')
+        setError(
+          'Client ID, region and redirect URI are required.',
+        )
+        return
+      }
 
-    try {
-      const apiClient = platformClient.ApiClient.instance
+      try {
+        saveAuthConfig(selectedConfig, 'standalone')
+      } catch {
+        setStatus('Authentication failed')
+        setError(
+          'Could not save the connection settings needed to resume sign-in. Check browser session storage and try again.',
+        )
+        return
+      }
 
-      apiClient.setEnvironment(config.region)
+      setConfig(selectedConfig)
+      setMode('standalone')
 
-      await apiClient.loginPKCEGrant(
-        config.clientId,
-        config.redirectUri,
-      )
-
-      setStatus('Loading user details...')
-
-      const usersApi = new platformClient.UsersApi()
-
-      const currentUser =
-        (await usersApi.getUsersMe()) as GenesysUser
-
-      setUser(currentUser)
-      setStatus('Authenticated successfully')
-
-      cleanOAuthCallbackUrl()
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : String(err)
-
-      setError(message)
-      setStatus('Authentication failed')
-    }
-  }, [config])
+      await authenticateWithConfig(selectedConfig)
+    },
+    [authenticateWithConfig],
+  )
 
   useEffect(() => {
     const params = new URLSearchParams(
@@ -148,23 +311,24 @@ export function AuthProvider({
 
     const oauthError = params.get('error')
 
-    if (oauthError && !callbackHandled.current) {
-      callbackHandled.current = true
+    if (oauthError) {
+      if (!callbackHandled.current) {
+        callbackHandled.current = true
 
-      setStatus('Authentication failed')
-      setError(
-        params.get('error_description') || oauthError,
-      )
+        setStatus('Authentication failed')
+        setError(
+          params.get('error_description') || oauthError,
+        )
 
-      cleanOAuthCallbackUrl()
+        cleanOAuthCallbackUrl()
+      }
+
       return
     }
 
-    // Prevent duplicate callback handling in React Strict Mode.
-    if (
-      params.has('code') &&
-      !callbackHandled.current
-    ) {
+    // Process an OAuth callback, but do not auto-start a
+    // fresh login just because launch parameters are present.
+    if (params.has('code') && !callbackHandled.current) {
       callbackHandled.current = true
       void login()
     }
@@ -178,11 +342,14 @@ export function AuthProvider({
     <AuthContext.Provider
       value={{
         config,
+        mode,
         user,
+        organization,
         status,
         error,
         isBusy,
         login,
+        startGenesysLogin,
       }}
     >
       {children}

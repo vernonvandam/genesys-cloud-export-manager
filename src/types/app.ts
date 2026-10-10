@@ -28,3 +28,8 @@ export type ResourceCategory = {
   title: string
   description: string
 }
+
+export type GenesysOrganization = {
+  id?: string
+  name?: string
+}

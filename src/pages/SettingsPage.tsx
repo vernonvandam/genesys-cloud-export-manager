@@ -8,7 +8,7 @@ import { useAuth } from '../auth/useAuth'
 import ConfigRow from '../components/common/ConfigRow'
 
 export default function SettingsPage() {
-  const { config, user } = useAuth()
+  const { config, user, organization } = useAuth()
 
   return (
     <div className="workspace-view">
@@ -77,6 +77,16 @@ export default function SettingsPage() {
               user?.name ||
               'Not provided'
             }
+          />
+
+          <ConfigRow
+            label="Connected organisation"
+            value={organization?.name || 'Not identified'}
+          />
+
+          <ConfigRow
+            label="Organisation ID"
+            value={organization?.id || 'Not identified'}
           />
         </div>
 

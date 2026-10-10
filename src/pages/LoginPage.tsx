@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import {
   AlertBlock,
   DxButton,
@@ -9,10 +9,10 @@ import {
 } from 'genesys-dev-icons'
 
 import { useAuth } from '../auth/useAuth'
-import ConfigRow from '../components/common/ConfigRow'
 
 export default function LoginPage() {
   const {
+    mode,
     config,
     user,
     status,
@@ -21,28 +21,132 @@ export default function LoginPage() {
     login,
   } = useAuth()
 
+  const params = new URLSearchParams(
+    window.location.search,
+  )
+
+  const isOAuthCallback =
+    params.has('code') || params.has('error')
+
+  const hasError =
+    Boolean(error) ||
+    status === 'Authentication failed' ||
+    status === 'Configuration missing'
+
   if (user) {
     return <Navigate to="/app" replace />
   }
 
-  const alertType =
-    status === 'Authenticated successfully'
-      ? 'success'
-      : status === 'Authentication failed' ||
-          status === 'Configuration missing'
-        ? 'critical'
-        : 'info'
+  const isIntegrated =
+    mode === 'integrated' &&
+    Boolean(
+      config.clientId &&
+      config.region &&
+      config.redirectUri,
+    )
 
   const statusMessage =
     error ||
-    (status === 'Authenticated successfully'
-      ? 'Your Genesys Cloud identity was verified successfully.'
-      : status === 'Connecting to Genesys Cloud...'
-        ? 'Continue the sign-in process in Genesys Cloud.'
-        : status === 'Loading user details...'
-          ? 'Retrieving your authenticated user profile.'
-          : 'Sign in to open your Genesys Cloud export workspace.')
+    (status === 'Connecting to Genesys Cloud...'
+      ? 'Continue the sign-in process in Genesys Cloud.'
+      : status === 'Loading user details...'
+        ? 'Verifying your Genesys Cloud identity and organisation.'
+        : 'Your launch configuration is ready. Select Login to continue.')
 
+  // Callback: the authentication provider will process the code.
+  if (isOAuthCallback) {
+    return (
+      <div className="genesys-app genesys-app-light auth-page">
+        <main className="auth-card">
+          <header className="auth-heading">
+            <GenesysDevIcon
+              icon={GenesysDevIcons.AppShieldCheck}
+              className="auth-brand-icon"
+            />
+            <div>
+              <p className="eyebrow">
+                GENESYS CLOUD WORKSPACE
+              </p>
+              <h1 className="auth-title">
+                Genesys Cloud Export Manager
+              </h1>
+            </div>
+          </header>
+
+          <h2 className="auth-subtitle">
+            Completing sign-in
+          </h2>
+
+          <AlertBlock
+            alertType={hasError ? 'critical' : 'info'}
+            title={status}
+            className="auth-status"
+          >
+            {statusMessage}
+          </AlertBlock>
+        </main>
+      </div>
+    )
+  }
+
+  // Complete integrated launch: show one login button.
+  if (isIntegrated) {
+    return (
+      <div className="genesys-app genesys-app-light auth-page">
+        <main className="auth-card">
+          <header className="auth-heading">
+            <GenesysDevIcon
+              icon={GenesysDevIcons.AppShieldCheck}
+              className="auth-brand-icon"
+            />
+            <div>
+              <p className="eyebrow">
+                GENESYS CLOUD WORKSPACE
+              </p>
+              <h1 className="auth-title">
+                Genesys Cloud Export Manager
+              </h1>
+            </div>
+          </header>
+
+          <h2 className="auth-subtitle">
+            Sign in to your Genesys Cloud workspace
+          </h2>
+
+          <p className="auth-description">
+            Your organisation connection has been provided.
+            Continue to authenticate and open your workspace.
+          </p>
+
+          {hasError && (
+            <AlertBlock
+              alertType="critical"
+              title={status}
+              className="auth-status"
+            >
+              {statusMessage}
+            </AlertBlock>
+          )}
+
+          <div className="auth-actions">
+            <DxButton
+              type="primary"
+              disabled={isBusy}
+              onClick={() => void login()}
+            >
+              {isBusy
+                ? 'Connecting...'
+                : hasError
+                  ? 'Retry Genesys login'
+                  : 'Login with Genesys Cloud'}
+            </DxButton>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Standalone entry: no general-purpose login button.
   return (
     <div className="genesys-app genesys-app-light auth-page">
       <main className="auth-card">
@@ -51,7 +155,6 @@ export default function LoginPage() {
             icon={GenesysDevIcons.AppShieldCheck}
             className="auth-brand-icon"
           />
-
           <div>
             <p className="eyebrow">
               GENESYS CLOUD TOOLS
@@ -67,49 +170,69 @@ export default function LoginPage() {
         </h2>
 
         <p className="auth-description">
-          Connect to your Genesys Cloud organisation to
-          manage configuration exports and backups.
+          Choose how you would like to access Export Manager.
         </p>
 
-        <div className="config-list">
-          <ConfigRow
-            label="Client ID"
-            value={config.clientId ? 'Configured' : 'Missing'}
-          />
-          <ConfigRow
-            label="Region"
-            value={config.region}
-          />
-          <ConfigRow
-            label="Redirect URI"
-            value={config.redirectUri}
-          />
-        </div>
-
-        <AlertBlock
-          alertType={alertType}
-          title={status}
-          className="auth-status"
-        >
-          {statusMessage}
-        </AlertBlock>
-
-        <div className="auth-actions">
-          <DxButton
-            type="primary"
-            disabled={isBusy}
-            onClick={() => void login()}
+        {hasError && (
+          <AlertBlock
+            alertType="critical"
+            title={status}
+            className="auth-status"
           >
-            {isBusy
-              ? 'Connecting...'
-              : 'Login with Genesys Cloud'}
-          </DxButton>
+            {statusMessage}
+          </AlertBlock>
+        )}
+
+        <div className="auth-choice-list">
+          <Link
+            to="/login/genesys"
+            className="auth-choice"
+          >
+            <span className="auth-choice-icon">
+              <GenesysDevIcon
+                icon={GenesysDevIcons.AppShieldCheck}
+              />
+            </span>
+
+            <span className="auth-choice-copy">
+              <span className="auth-choice-title">
+                Connect to Genesys Cloud
+              </span>
+              <span className="auth-choice-description">
+                Enter the connection details for your
+                Genesys Cloud organisation.
+              </span>
+            </span>
+
+            <span className="auth-choice-arrow">›</span>
+          </Link>
+
+          <Link
+            to="/login/email"
+            className="auth-choice"
+          >
+            <span className="auth-choice-icon">
+              <GenesysDevIcon
+                icon={GenesysDevIcons.AppUserSolid}
+              />
+            </span>
+
+            <span className="auth-choice-copy">
+              <span className="auth-choice-title">
+                Sign in with email
+              </span>
+              <span className="auth-choice-description">
+                Access Export Manager without connecting
+                a Genesys organisation.
+              </span>
+            </span>
+
+            <span className="auth-choice-arrow">›</span>
+          </Link>
         </div>
 
         <p className="auth-help">
-          Uses OAuth Authorization Code with PKCE.
-          No client secret is required in this browser
-          application.
+          Genesys features require a connected organisation.
         </p>
       </main>
     </div>

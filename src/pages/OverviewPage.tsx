@@ -12,7 +12,7 @@ import DemoTag from '../components/common/DemoTag'
 import ExportTable from '../components/common/ExportTable'
 
 export default function OverviewPage() {
-  const { config, user } = useAuth()
+  const { config, user, organization } = useAuth()
   const navigate = useNavigate()
 
   const firstName = user?.name
@@ -87,7 +87,9 @@ export default function OverviewPage() {
 
         <div className="connection-summary-copy">
           <span className="connection-summary-title">
-            Connected to Genesys Cloud
+            {organization?.name
+              ? `Connected to ${organization.name}`
+              : 'Connected to Genesys Cloud'}
           </span>
           <span className="connection-summary-subtitle">
             Authenticated as{' '}
