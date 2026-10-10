@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import platformClient from 'purecloud-platform-client-v2'
 import { AlertBlock, DxButton } from 'genesys-react-components'
 import { GenesysDevIcon, GenesysDevIcons } from 'genesys-dev-icons'
@@ -18,7 +18,7 @@ type GenesysConfig = {
 }
 
 type WorkspaceView = 'overview' | 'resources' | 'history' | 'settings'
-type WorkflowId = 'terraform-archy' | 'api-exports'
+type WorkflowId = 'configuration-export' | 'additional-exports'
 type DemoStatus = 'Completed' | 'In progress' | 'Planned'
 
 type DemoExport = {
@@ -48,48 +48,48 @@ const demoExports: DemoExport[] = [
   {
     id: 'DEMO-1042',
     name: 'Configuration baseline',
-    method: 'Terraform',
+    method: 'Configuration backup',
     status: 'Completed',
     resources: '48 resources',
-    date: '09 Oct 2026 · 9:15 AM',
+    date: '09 Oct 2026 Â· 9:15 AM',
   },
   {
     id: 'DEMO-1041',
-    name: 'Architect flow export',
-    method: 'Archy',
+    name: 'Architect flow configuration',
+    method: 'Configuration backup',
     status: 'Completed',
     resources: '14 flows',
-    date: '08 Oct 2026 · 4:42 PM',
+    date: '08 Oct 2026 Â· 4:42 PM',
   },
   {
     id: 'DEMO-1040',
     name: 'Queue metadata preview',
-    method: 'Direct API · placeholder',
+    method: 'Resource preview',
     status: 'Planned',
     resources: 'Sample only',
-    date: '08 Oct 2026 · 11:20 AM',
+    date: '08 Oct 2026 Â· 11:20 AM',
   },
 ]
 
-const apiPlaceholders = [
+const resourcePlaceholders = [
   {
     title: 'Users and groups',
-    description: 'Placeholder for user, team and group API exports.',
+    description: 'Export users, teams and groups.',
     icon: GenesysDevIcons.AppUserSolid,
   },
   {
     title: 'Queues and routing',
-    description: 'Placeholder for queue, routing and skill configuration.',
+    description: 'Export queue, routing and skill configuration.',
     icon: GenesysDevIcons.IaRouting,
   },
   {
     title: 'Divisions',
-    description: 'Placeholder for division metadata and assignments.',
+    description: 'Export division metadata and assignments.',
     icon: GenesysDevIcons.IaOrganization,
   },
   {
     title: 'Data tables',
-    description: 'Placeholder for Architect data table API exports.',
+    description: 'Export Architect data table configuration.',
     icon: GenesysDevIcons.AppDataSource,
   },
 ]
@@ -183,7 +183,7 @@ function ExportTable({ compact = false }: { compact?: boolean }) {
         <thead>
           <tr>
             <th scope="col">Export</th>
-            <th scope="col">Method</th>
+            <th scope="col">Export type</th>
             <th scope="col">Resources</th>
             <th scope="col">Status</th>
             <th scope="col">Last updated</th>
@@ -292,7 +292,7 @@ export default function App() {
 
   const pageTitle = navigationItems.find((item) => item.id === activeView)?.label || 'Overview'
 
-  function openExportWorkspace(workflow: WorkflowId = 'terraform-archy') {
+  function openExportWorkspace(workflow: WorkflowId = 'configuration-export') {
     setSelectedWorkflow(workflow)
     setActiveView('resources')
   }
@@ -314,7 +314,7 @@ export default function App() {
 
           <h2 className="auth-subtitle">Sign in to your workspace</h2>
           <p className="auth-description">
-            Connect to your Genesys Cloud organisation to manage Terraform and Archy exports.
+            Connect to your Genesys Cloud organisation to export and back up configuration with configuration.
           </p>
 
           <div className="config-list">
@@ -440,7 +440,7 @@ export default function App() {
                   <span className="welcome-kicker">WELCOME BACK</span>
                   <h2>{user.name ? `Hello, ${user.name.split(/\s+/)[0]}` : 'Welcome back'}</h2>
                   <p>
-                    Your connection is ready. Start with the Terraform and Archy export workflow, or explore planned API export options.
+                    Your connection is ready. Start a configuration export, or explore additional resource categories.
                   </p>
                 </div>
                 <div className="welcome-action">
@@ -492,11 +492,11 @@ export default function App() {
                 </article>
                 <article className="metric-card">
                   <div className="metric-card-top">
-                    <span className="metric-label">Primary toolchains</span>
+                    <span className="metric-label">Resource groups</span>
                     <span className="metric-icon"><GenesysDevIcon icon={GenesysDevIcons.AppTreeView} /></span>
                   </div>
-                  <span className="metric-value">2</span>
-                  <span className="metric-footnote">Terraform and Archy</span>
+                  <span className="metric-value">4</span>
+                  <span className="metric-footnote">Sample categories</span>
                 </article>
               </section>
 
@@ -504,7 +504,7 @@ export default function App() {
                 <div className="section-heading">
                   <div>
                     <h2 className="section-title">Export workflows</h2>
-                    <p className="section-description">The primary export path plus placeholders for future API-based exports.</p>
+                    <p className="section-description">Start a configuration backup or explore additional resource categories.</p>
                   </div>
                   <button type="button" className="text-action" onClick={() => setActiveView('resources')}>
                     View all resources <GenesysDevIcon icon={GenesysDevIcons.AppChevronRight} />
@@ -517,19 +517,19 @@ export default function App() {
                       <div className="workflow-icon workflow-icon-primary"><GenesysDevIcon icon={GenesysDevIcons.AppTreeView} /></div>
                       <span className="primary-label">Primary workflow</span>
                     </div>
-                    <h3>Terraform + Archy export</h3>
+                    <h3>configuration export</h3>
                     <p>
-                      The main workflow for exporting Terraform-managed Genesys Cloud configuration and Architect flows through Archy.
+                      The main workflow for exporting supported Genesys Cloud configuration, including Architect flow configuration supported by the configuration provider.
                     </p>
                     <div className="workflow-step-list">
                       <div className="workflow-step">
                         <span className="workflow-step-number">01</span>
-                        <span><strong>Terraform</strong><small>Configuration resources</small></span>
+                        <span><strong>Collect</strong><small>Selected configuration</small></span>
                       </div>
                       <GenesysDevIcon icon={GenesysDevIcons.AppChevronRight} className="workflow-step-arrow" />
                       <div className="workflow-step">
                         <span className="workflow-step-number">02</span>
-                        <span><strong>Archy</strong><small>Architect flows</small></span>
+                        <span><strong>Package &amp; backup</strong><small>Review and retain outputs</small></span>
                       </div>
                     </div>
                     <div className="workflow-card-footer">
@@ -545,9 +545,9 @@ export default function App() {
                       <div className="workflow-icon"><GenesysDevIcon icon={GenesysDevIcons.AppDataSource} /></div>
                       <span className="placeholder-label">Coming soon</span>
                     </div>
-                    <h3>Direct API exports</h3>
+                    <h3>Additional resource exports</h3>
                     <p>
-                      Future export methods for resources that can be retrieved directly through the Genesys Cloud API.
+                      Expand export coverage to additional supported resource categories.
                     </p>
                     <div className="placeholder-chip-list">
                       <span>Users and groups</span>
@@ -587,7 +587,7 @@ export default function App() {
               <div className="page-intro">
                 <div>
                   <h2 className="page-title">Export resources</h2>
-                  <p className="page-description">Choose an export workflow. Terraform and Archy are the priority integration.</p>
+                  <p className="page-description">Choose an export workflow. configuration is the primary export engine.</p>
                 </div>
                 <DemoTag />
               </div>
@@ -596,24 +596,24 @@ export default function App() {
                 <div className="resource-primary-main">
                   <div className="workflow-icon workflow-icon-primary"><GenesysDevIcon icon={GenesysDevIcons.AppTreeView} /></div>
                   <div>
-                    <div className="resource-eyebrow-row"><span className="primary-label">Primary workflow</span><span className="method-chip">Terraform</span><span className="method-chip">Archy</span></div>
-                    <h2 className="resource-title">Terraform + Archy configuration export</h2>
+                    <div className="resource-eyebrow-row"><span className="primary-label">Primary workflow</span><span className="method-chip">Configuration export</span></div>
+                    <h2 className="resource-title">Configuration export &amp; backup</h2>
                     <p className="resource-description">
-                      One workspace for Terraform resources and Architect flows. The dashboard UI is in place; launching a real export runner will be connected in a later stage.
+                      One workspace for supported Genesys Cloud configuration, including Architect flows where supported by the provider. The dashboard UI is in place; the export runner will be connected in a later stage.
                     </p>
                   </div>
                 </div>
-                <DxButton type="primary" onClick={() => setSelectedWorkflow(selectedWorkflow === 'terraform-archy' ? null : 'terraform-archy')}>
-                  {selectedWorkflow === 'terraform-archy' ? 'Close workspace details' : 'Open export workspace'}
+                <DxButton type="primary" onClick={() => setSelectedWorkflow(selectedWorkflow === 'configuration-export' ? null : 'configuration-export')}>
+                  {selectedWorkflow === 'configuration-export' ? 'Close workspace details' : 'Open export workspace'}
                 </DxButton>
               </article>
 
-              {selectedWorkflow === 'terraform-archy' && (
+              {selectedWorkflow === 'configuration-export' && (
                 <section className="panel export-workspace-panel">
                   <div className="section-heading">
                     <div>
-                      <h3 className="section-title">Terraform + Archy workspace</h3>
-                      <p className="section-description">Illustrative setup steps only — no commands are executed in this milestone.</p>
+                      <h3 className="section-title">Configuration export workspace</h3>
+                      <p className="section-description">Illustrative setup steps only â€” no commands are executed in this milestone.</p>
                     </div>
                     <span className="placeholder-label">Not connected</span>
                   </div>
@@ -621,15 +621,15 @@ export default function App() {
                     <div className="setup-step-card">
                       <span className="setup-step-number">01</span>
                       <GenesysDevIcon icon={GenesysDevIcons.AppTreeView} />
-                      <h4>Terraform export</h4>
-                      <p>Export supported resource configuration into the project output folder.</p>
+                      <h4>Collect configuration</h4>
+                      <p>Collect supported configuration from the connected organisation.</p>
                       <span className="step-status">Execution pending</span>
                     </div>
                     <div className="setup-step-card">
                       <span className="setup-step-number">02</span>
                       <GenesysDevIcon icon={GenesysDevIcons.AppDocumentEye} />
-                      <h4>Archy flow export</h4>
-                      <p>Use the exported flow definitions to drive Architect flow export through Archy.</p>
+                      <h4>Prepare backup package</h4>
+                      <p>Package generated outputs, retain timestamped backups and record export results.</p>
                       <span className="step-status">Execution pending</span>
                     </div>
                     <div className="setup-step-card">
@@ -641,26 +641,26 @@ export default function App() {
                     </div>
                   </div>
                   <AlertBlock alertType="info" title="Export runner not connected">
-                    This dashboard is currently using dummy data. No Terraform or Archy commands have been run. The next integration stage will connect this workspace to a backend service or customer-side execution agent.
+                    This dashboard is currently showing sample data. Export execution is not connected yet. The next integration stage will connect this workspace to the backend export service.
                   </AlertBlock>
                 </section>
               )}
 
               <div className="section-heading section-heading-spaced">
                 <div>
-                  <h2 className="section-title">Planned API exports</h2>
-                  <p className="section-description">Placeholders for additional resources that may be exported directly through APIs.</p>
+                  <h2 className="section-title">Additional resource categories</h2>
+                  <p className="section-description">More resource categories can be added here as coverage expands.</p>
                 </div>
                 <span className="placeholder-label">Not implemented</span>
               </div>
-              <div className="api-placeholder-grid">
-                {apiPlaceholders.map((item) => (
-                  <article className="api-placeholder-card" key={item.title}>
-                    <div className="api-placeholder-icon"><GenesysDevIcon icon={item.icon} /></div>
+              <div className="resource-placeholder-grid">
+                {resourcePlaceholders.map((item) => (
+                  <article className="resource-placeholder-card" key={item.title}>
+                    <div className="resource-placeholder-icon"><GenesysDevIcon icon={item.icon} /></div>
                     <span className="placeholder-label">Coming soon</span>
                     <h3>{item.title}</h3>
                     <p>{item.description}</p>
-                    <span className="api-placeholder-footer">API export placeholder</span>
+                    <span className="resource-placeholder-footer">Planned capability</span>
                   </article>
                 ))}
               </div>
@@ -683,7 +683,7 @@ export default function App() {
               </div>
               <section className="panel table-panel history-table-panel">
                 <div className="panel-heading">
-                  <div><h2 className="section-title">All export activity</h2><p className="section-description">Demo records only — not retrieved from your organisation.</p></div>
+                  <div><h2 className="section-title">All export activity</h2><p className="section-description">Demo records only â€” not retrieved from your organisation.</p></div>
                 </div>
                 <ExportTable />
               </section>
@@ -721,9 +721,10 @@ export default function App() {
 
         <footer className="app-footer">
           <span>Genesys Cloud Export Manager</span>
-          <span><span className="footer-demo-dot" /> Demo dashboard · export operations are not connected</span>
+          <span><span className="footer-demo-dot" /> Demo dashboard Â· export operations are not connected</span>
         </footer>
       </div>
     </div>
   )
 }
+

@@ -1,4 +1,4 @@
-@font-face {
+﻿@font-face {
   font-family: 'Roboto';
   font-style: normal;
   font-weight: 300;
@@ -288,13 +288,13 @@ body { display: block; min-height: 100vh; }
 .step-status { margin-top: auto; padding-top: 6px; color: #8b969c; font-size: 10px; }
 .setup-step-number { position: absolute; top: 13px; right: 13px; }
 .section-heading-spaced { margin-top: 4px; }
-.api-placeholder-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.api-placeholder-card { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; padding: 18px; border: 1px solid var($--theme-core-layout-border-color); border-radius: 8px; background: var($--theme-core-control-background-color); }
-.api-placeholder-icon { display: grid; width: 38px; height: 38px; margin-bottom: 16px; place-items: center; border-radius: 7px; color: #4a7f90; background: #edf5f8; font-size: 20px; }
-.api-placeholder-card > .placeholder-label { margin-bottom: 10px; }
-.api-placeholder-card h3 { margin: 0 0 7px !important; font-size: 14px; font-weight: 600; line-height: 21px; }
-.api-placeholder-card p { min-height: 56px; margin: 0 0 18px !important; color: var($--theme-core-control-label-color); font-size: 11px; line-height: 18px; }
-.api-placeholder-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid var($--theme-core-layout-border-color); width: 100%; color: #8c969c; font-size: 10px; }
+.resource-placeholder-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.resource-placeholder-card { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; padding: 18px; border: 1px solid var($--theme-core-layout-border-color); border-radius: 8px; background: var($--theme-core-control-background-color); }
+.resource-placeholder-icon { display: grid; width: 38px; height: 38px; margin-bottom: 16px; place-items: center; border-radius: 7px; color: #4a7f90; background: #edf5f8; font-size: 20px; }
+.resource-placeholder-card > .placeholder-label { margin-bottom: 10px; }
+.resource-placeholder-card h3 { margin: 0 0 7px !important; font-size: 14px; font-weight: 600; line-height: 21px; }
+.resource-placeholder-card p { min-height: 56px; margin: 0 0 18px !important; color: var($--theme-core-control-label-color); font-size: 11px; line-height: 18px; }
+.resource-placeholder-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid var($--theme-core-layout-border-color); width: 100%; color: #8c969c; font-size: 10px; }
 .history-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .history-summary-card { display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 1px solid var($--theme-core-layout-border-color); border-radius: 8px; background: var($--theme-core-control-background-color); }
 .history-summary-card strong { font-size: 27px; font-weight: 300; line-height: 32px; }
@@ -310,7 +310,7 @@ body { display: block; min-height: 100vh; }
 
 @media (max-width: 1280px) {
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .api-placeholder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resource-placeholder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-grid { grid-template-columns: minmax(0, 1fr); }
   .workflow-card > p { min-height: auto; }
 }
@@ -370,8 +370,9 @@ body { display: block; min-height: 100vh; }
   .workflow-step-arrow { transform: rotate(90deg); margin-left: 8px; }
   .resource-primary-card { align-items: flex-start; flex-direction: column; padding: 18px; }
   .resource-primary-main { flex-direction: column; }
-  .setup-step-grid,.api-placeholder-grid,.history-summary-grid { grid-template-columns: minmax(0, 1fr); }
-  .api-placeholder-card p { min-height: 0; }
+  .setup-step-grid,.resource-placeholder-grid,.history-summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .resource-placeholder-card p { min-height: 0; }
   .app-footer { align-items: flex-start; flex-direction: column; padding: 14px 16px; }
   .panel-heading { align-items: flex-start; flex-wrap: wrap; padding: 16px; }
 }
+
