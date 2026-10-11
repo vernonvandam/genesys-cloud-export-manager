@@ -70,6 +70,28 @@ function createDefaultGenesysForm(): GenesysIntegrationFormData {
   };
 }
 
+/**
+ * Redacts a Client ID for display in configuration summaries.
+ *
+ * Keeps the first and last four characters visible.
+ * The original Client ID is not modified or overwritten.
+ */
+function redactClientId(
+  clientId: string | null | undefined,
+): string {
+  const value = clientId?.trim();
+
+  if (!value) {
+    return "Not configured";
+  }
+
+  if (value.length <= 8) {
+    return " [REDACTED] ";
+  }
+
+  return `${value.slice(0, 4)} [REDACTED] ${value.slice(-4)}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return (
     typeof value === "object" &&
@@ -1092,21 +1114,12 @@ export default function SettingsPage() {
                         </span>
 
                         <p>Grant Type: Client Credentials</p>
-                        <p>Client ID: {item.client_id}</p>
+
                         <p>
-                          Client Secret:{" "}
-                          {item.has_secret
-                            ? "Saved securely in Supabase Vault"
-                            : "Not configured"}
+                          Client ID: {redactClientId(item.client_id)}
                         </p>
 
                         {item.description && <p>{item.description}</p>}
-
-                        {item.endpoint && (
-                          <span className="tooling-config-endpoint">
-                            Endpoint: {item.endpoint}
-                          </span>
-                        )}
                       </div>
                     </div>
 
@@ -1241,14 +1254,9 @@ export default function SettingsPage() {
                         </span>
                       </div>
 
-                      <span className="tooling-config-environment">
-                        Authorization Code with PKCE
-                      </span>
-                      <p>Client ID: {integration.client_id}</p>
-                      <p>Region: {integration.region}</p>
-                      <span className="tooling-config-endpoint">
-                        Redirect URI: {integration.redirect_uri}
-                      </span>
+                      <p>
+                        Client ID: {redactClientId(integration.client_id)}
+                      </p>
                     </div>
                   </div>
 
