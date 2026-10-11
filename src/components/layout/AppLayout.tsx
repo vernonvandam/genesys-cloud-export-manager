@@ -10,6 +10,7 @@ import {
 } from 'genesys-dev-icons'
 
 import { useAuth } from '../../auth/useAuth'
+import { useSupabaseAuth } from '../../auth/useSupabaseAuth'
 
 const navigationItems = [
   {
@@ -50,6 +51,21 @@ function getInitials(name?: string) {
 export default function AppLayout() {
   const { user, organization } = useAuth()
   const location = useLocation()
+  const {
+  user: standaloneUser,
+  profile: standaloneProfile,
+} = useSupabaseAuth()
+
+const displayName =
+  user?.name ||
+  standaloneProfile?.display_name ||
+  standaloneUser?.email ||
+  'User'
+
+const avatarName =
+  user?.name ||
+  standaloneProfile?.display_name ||
+  standaloneUser?.email
 
   const pageTitle =
     navigationItems.find(
@@ -96,7 +112,7 @@ export default function AppLayout() {
 
           <div className="org-context-copy">
             <span className="org-context-label">
-              Connected to organisation
+              Connected to
             </span>
 
             <span className="org-context-value">

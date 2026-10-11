@@ -7,16 +7,48 @@ import {
   GenesysDevIcons,
 } from 'genesys-dev-icons'
 
+import { supabase } from '../lib/supabaseClient'
+
 export default function EmailLoginPage() {
   const [email, setEmail] = useState('')
-  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState('')
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault()
 
-    setNotice(
-      'Email authentication is not configured yet. No email was sent. This form will be connected to Export Manager authentication.',
-    )
+    setBusy(true)
+    setSent(false)
+    setError('')
+
+    try {
+      const { error: authError } =
+        await supabase.auth.signInWithOtp({
+          email: email.trim().toLowerCase(),
+          options: {
+            shouldCreateUser: true,
+            emailRedirectTo: new URL(
+              '/auth/callback',
+              window.location.origin,
+            ).toString(),
+          },
+        })
+
+      if (authError) throw authError
+
+      setSent(true)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to send the sign-in link.',
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -44,48 +76,76 @@ export default function EmailLoginPage() {
         </h2>
 
         <p className="auth-description">
-          Use your Export Manager account. This sign-in
-          does not connect a Genesys Cloud organisation.
+          Enter your email address. We'll send you a
+          secure sign-in link. New users can create
+          their account through the same process.
         </p>
 
-        {notice && (
+        {error && (
           <AlertBlock
-            alertType="info"
-            title="Email sign-in not connected"
+            alertType="critical"
+            title="Unable to send sign-in link"
             className="auth-status"
           >
-            {notice}
+            {error}
           </AlertBlock>
         )}
 
-        <form
-          className="auth-form"
-          onSubmit={handleSubmit}
-        >
-          <label className="auth-field">
-            <span>Email address</span>
-
-            <input
-              className="auth-input"
-              type="email"
-              name="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) =>
-                setEmail(event.target.value)
-              }
-              placeholder="you@company.com"
-              required
-            />
-          </label>
-
-          <button
-            className="auth-submit"
-            type="submit"
+        {sent && (
+          <AlertBlock
+            alertType="success"
+            title="Check your email"
+            className="auth-status"
           >
-            Continue with email
+            If the address can be registered, Supabase
+            will send a link to continue. Open the link
+            in this browser to finish sign-in.
+          </AlertBlock>
+        )}
+
+        {!sent && (
+          <form
+            className="auth-form"
+            onSubmit={handleSubmit}
+          >
+            <label className="auth-field">
+              <span>Email address</span>
+
+              <input
+                className="auth-input"
+                type="email"
+                name="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) =>
+                  setEmail(event.target.value)
+                }
+                placeholder="you@company.com"
+                required
+              />
+            </label>
+
+            <button
+              className="auth-submit"
+              type="submit"
+              disabled={busy}
+            >
+              {busy
+                ? 'Sending...'
+                : 'Email me a sign-in link'}
+            </button>
+          </form>
+        )}
+
+        {sent && (
+          <button
+            className="tooling-secondary-button"
+            type="button"
+            onClick={() => setSent(false)}
+          >
+            Try another email address
           </button>
-        </form>
+        )}
 
         <Link to="/" className="auth-back-link">
           Back to sign-in options

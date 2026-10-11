@@ -9,6 +9,8 @@ import {
 } from 'genesys-dev-icons'
 
 import { useAuth } from '../auth/useAuth'
+import { useSupabaseAuth } from '../auth/useSupabaseAuth'
+
 
 export default function LoginPage() {
   const {

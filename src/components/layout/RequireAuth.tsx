@@ -5,6 +5,7 @@ import {
 } from 'react-router-dom'
 
 import { useAuth } from '../../auth/useAuth'
+import { useSupabaseAuth } from '../../auth/useSupabaseAuth'
 
 function hasCompleteLaunchConfig(search: string) {
   const params = new URLSearchParams(search)
@@ -29,19 +30,42 @@ function hasCompleteLaunchConfig(search: string) {
   )
 }
 
+function LoadingScreen({
+  title = 'Loading your workspace',
+}: {
+  title?: string
+}) {
+  return (
+    <div className="genesys-app genesys-app-light auth-page">
+      <main className="auth-card">
+        <h1 className="auth-title">{title}</h1>
+        <p className="auth-description">
+          Please wait while your session is verified.
+        </p>
+      </main>
+    </div>
+  )
+}
+
 export default function RequireAuth() {
   const {
-    user,
-    isBusy,
-    error,
-    status,
+    user: genesysUser,
+    isBusy: genesysBusy,
+    status: genesysStatus,
+    error: genesysError,
   } = useAuth()
 
-  const location = useLocation()
+  const {
+    user: standaloneUser,
+    profile,
+    loading: standaloneLoading,
+    profileLoading,
+    profileError,
+    refreshProfile,
+  } = useSupabaseAuth()
 
-  const params = new URLSearchParams(
-    location.search,
-  )
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
 
   const isOAuthCallback =
     params.has('code') || params.has('error')
@@ -49,37 +73,75 @@ export default function RequireAuth() {
   const isIntegratedLaunch =
     hasCompleteLaunchConfig(location.search)
 
-  const hasFailed =
-    Boolean(error) ||
-    status === 'Authentication failed' ||
-    status === 'Configuration missing'
+  const genesysFailed =
+    Boolean(genesysError) ||
+    genesysStatus === 'Authentication failed' ||
+    genesysStatus === 'Configuration missing'
 
-  if (user) {
+  if (standaloneLoading) {
+    return <LoadingScreen />
+  }
+
+  // Integrated Genesys authentication.
+  if (genesysUser) {
     return <Outlet />
   }
 
-  // Let the authentication provider process OAuth callbacks.
-  if (isOAuthCallback && !hasFailed) {
+  // Standalone Supabase authentication.
+  if (standaloneUser) {
+    if (profileLoading) {
+      return <LoadingScreen title="Loading your profile" />
+    }
+
+    if (profileError) {
+      return (
+        <div className="genesys-app genesys-app-light auth-page">
+          <main className="auth-card">
+            <h1 className="auth-title">
+              Unable to load your profile
+            </h1>
+
+            <p className="auth-description">
+              Your email session is active, but Export
+              Manager could not retrieve your profile.
+            </p>
+
+            <p>{profileError}</p>
+
+            <button
+              className="auth-submit"
+              type="button"
+              onClick={() => void refreshProfile()}
+            >
+              Retry
+            </button>
+          </main>
+        </div>
+      )
+    }
+
+    if (!profile?.onboarding_completed) {
+      return (
+        <Navigate to="/onboarding" replace />
+      )
+    }
+
+    return <Outlet />
+  }
+
+  // Let an OAuth callback resolve before redirecting.
+  if (isOAuthCallback && !genesysFailed) {
     return (
-      <div className="genesys-app genesys-app-light auth-page">
-        <main className="auth-card">
-          <h1 className="auth-title">
-            Completing sign-in
-          </h1>
-          <p className="auth-description">
-            Please wait while your session is verified.
-          </p>
-        </main>
-      </div>
+      <LoadingScreen title="Completing sign-in" />
     )
   }
 
-  if (isOAuthCallback && hasFailed) {
+  if (isOAuthCallback && genesysFailed) {
     return <Navigate to="/" replace />
   }
 
-  // A dashboard route launched with config should go to
-  // the login button, not automatically start authentication.
+  // A direct dashboard URL with integrated launch
+  // configuration must show the login button first.
   if (isIntegratedLaunch) {
     return (
       <Navigate
@@ -89,19 +151,8 @@ export default function RequireAuth() {
     )
   }
 
-  if (isBusy) {
-    return (
-      <div className="genesys-app genesys-app-light auth-page">
-        <main className="auth-card">
-          <h1 className="auth-title">
-            Connecting to Genesys Cloud
-          </h1>
-          <p className="auth-description">
-            Please wait while your session is verified.
-          </p>
-        </main>
-      </div>
-    )
+  if (genesysBusy) {
+    return <LoadingScreen title="Connecting to Genesys Cloud" />
   }
 
   return (

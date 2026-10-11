@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "buffer": "^6.0.3",
     "genesys-dev-icons": "^1.6.0",
     "genesys-react-components": "^1.2.3",
