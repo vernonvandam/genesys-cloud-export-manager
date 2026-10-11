@@ -2417,3 +2417,349 @@ body {
     -webkit-backdrop-filter: none;
   }
 }
+
+/* =========================================================
+   GENESYS CLOUD STYLE REFINEMENT
+   Append this block to the END of src/App.scss.
+   ========================================================= */
+
+:root {
+  --export-canvas: #f1f4f7;
+  --export-surface: #fafbfc;
+  --export-surface-subtle: #f5f7f9;
+  --export-border: #d9e0e5;
+  --export-text: #25343c;
+  --export-muted: #687780;
+  --export-accent: #327f95;
+  --export-accent-dark: #24677a;
+  --export-accent-soft: rgba(50, 127, 149, 0.1);
+  --export-shadow: 0 1px 3px rgba(25, 48, 62, 0.06);
+  --export-shadow-raised: 0 3px 10px rgba(25, 48, 62, 0.07);
+  --export-radius-card: 8px;
+  --export-radius-control: 6px;
+}
+
+/* Keep the wallpaper atmospheric instead of making it compete with content. */
+body {
+  background-color: var(--export-canvas);
+  background-image:
+    linear-gradient(
+      rgba(241, 246, 248, 0.46),
+      rgba(241, 246, 248, 0.46)
+    ),
+    url('/background.webp');
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+  color: var(--export-text);
+}
+
+.genesys-app {
+  color: var(--export-text);
+}
+
+/* Improve navigation readability over the background image. */
+.app-sidebar,
+.topbar,
+.app-footer {
+  border-color: var(--export-border);
+  background: rgba(250, 251, 252, 0.88);
+  box-shadow: none;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.app-sidebar {
+  border-right: 1px solid var(--export-border);
+}
+
+.topbar {
+  min-height: 78px;
+  padding: 15px clamp(18px, 2.4vw, 32px);
+  border-bottom: 1px solid var(--export-border);
+}
+
+.app-footer {
+  min-height: 48px;
+  padding: 12px clamp(18px, 2.4vw, 32px);
+  border-top: 1px solid var(--export-border);
+  color: var(--export-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Use the Genesys-style teal-blue accent deliberately. */
+.brand-mark {
+  background: var(--export-accent);
+  border-radius: var(--export-radius-card);
+}
+
+.nav-item {
+  min-height: 40px;
+  border-radius: var(--export-radius-control);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.nav-item:hover {
+  color: var(--export-accent-dark);
+  background: rgba(50, 127, 149, 0.07);
+}
+
+.nav-item.is-active {
+  color: var(--export-accent-dark);
+  background: rgba(50, 127, 149, 0.12);
+  box-shadow: inset 3px 0 0 var(--export-accent);
+  font-weight: 600;
+}
+
+.nav-item.is-active > .icon {
+  color: var(--export-accent-dark);
+}
+
+/* Consistent surfaces: light borders and subtle shadows. */
+.auth-card,
+.auth-choice,
+.welcome-panel,
+.connection-summary,
+.metric-card,
+.workflow-card,
+.panel,
+.resource-primary-card,
+.resource-placeholder-card,
+.history-summary-card,
+.storage-provider-card {
+  border-color: var(--export-border);
+  border-radius: var(--export-radius-card);
+  background: rgba(250, 251, 252, 0.97);
+  box-shadow: var(--export-shadow);
+}
+
+.auth-card {
+  box-shadow: var(--export-shadow-raised);
+}
+
+.auth-choice:hover,
+.resource-placeholder-card:hover {
+  border-color: #c3d6dd;
+  box-shadow: var(--export-shadow-raised);
+}
+
+.welcome-panel {
+  min-height: 150px;
+  padding: 24px 28px;
+  box-shadow: var(--export-shadow);
+}
+
+.welcome-copy h2 {
+  color: var(--export-text);
+}
+
+.welcome-copy p {
+  color: #566873;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.welcome-kicker,
+.auth-brand-icon,
+.settings-title-icon,
+.metric-icon,
+.workflow-icon,
+.tooling-config-icon {
+  color: var(--export-accent);
+}
+
+.welcome-decoration {
+  opacity: 0.035;
+}
+
+.metric-card,
+.workflow-card,
+.history-summary-card,
+.connection-summary {
+  box-shadow: var(--export-shadow);
+}
+
+.workflow-card-primary {
+  border-top-color: var(--export-accent);
+}
+
+/* Flatten nested settings cards rather than stacking card effects. */
+.tooling-form {
+  border-color: var(--export-border);
+  border-radius: var(--export-radius-card);
+  background: var(--export-surface-subtle);
+  box-shadow: none;
+}
+
+.tooling-config-card {
+  border-color: var(--export-border);
+  border-radius: var(--export-radius-card);
+  background: var(--export-surface);
+  box-shadow: none;
+}
+
+.tooling-config-card:hover {
+  border-color: #c3d6dd;
+  box-shadow: var(--export-shadow);
+}
+
+.tooling-config-icon,
+.settings-title-icon,
+.workflow-icon,
+.metric-icon {
+  background: #edf5f7;
+}
+
+.tooling-notice {
+  border-color: #d8e6eb;
+  border-radius: var(--export-radius-control);
+  color: #526b75;
+  background: #f3f8fa;
+  font-size: 12px;
+  line-height: 19px;
+}
+
+/* Settings and history: clean forms and tables with subtle dividers. */
+.panel {
+  border: 1px solid var(--export-border);
+  box-shadow: var(--export-shadow);
+}
+
+.panel-heading {
+  border-bottom-color: var(--export-border);
+}
+
+.export-table th {
+  border-bottom-color: var(--export-border);
+  color: #53636d;
+  background: #f3f6f8;
+  font-size: 11px;
+}
+
+.export-table td {
+  border-bottom-color: #e8edf0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.export-table tbody tr:hover {
+  background: rgba(50, 127, 149, 0.035);
+}
+
+/* Make supporting text more readable without competing with headings. */
+.auth-help,
+.connection-summary-subtitle,
+.region-chip,
+.topbar-connection,
+.sidebar-user-role,
+.org-context-label,
+.sidebar-demo-note,
+.resource-placeholder-card p {
+  font-size: 12px;
+}
+
+.eyebrow {
+  color: var(--export-muted);
+  font-size: 11px;
+  letter-spacing: 0.075em;
+}
+
+/* Align buttons and form controls across the application. */
+.dx-button,
+.auth-actions button,
+.tooling-form-actions button,
+.genesys-auth-card-actions button {
+  min-height: 36px;
+  border-radius: var(--export-radius-control);
+  box-shadow: none;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  border-color: #cbd5dc;
+  border-radius: var(--export-radius-control);
+}
+
+input:not([type='checkbox']):not([type='radio']):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--export-accent);
+  box-shadow: 0 0 0 2px rgba(50, 127, 149, 0.13);
+  outline: none;
+}
+
+:where(button, input, select, textarea, a, [role='button']):focus-visible {
+  outline: 2px solid rgba(50, 127, 149, 0.7);
+  outline-offset: 2px;
+}
+
+.text-action {
+  color: var(--export-accent-dark);
+  font-size: 12px;
+}
+
+.text-action:hover {
+  color: #174f60;
+}
+
+/* Prevent transparency effects from becoming distracting on small screens. */
+@media (max-width: 640px) {
+  body {
+    background-attachment: scroll;
+  }
+
+  .app-sidebar,
+  .topbar,
+  .app-footer {
+    background: rgba(250, 251, 252, 0.96);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .welcome-panel {
+    padding: 20px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-sidebar,
+  .topbar,
+  .app-footer {
+    background: #fafbfc;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Optional styles for provider-specific storage-account help text. */
+.storage-field-help {
+  display: block;
+  margin-top: 3px;
+  color: var(--export-muted, #687780);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.storage-runtime-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--export-border, #d9e0e5);
+  border-radius: 6px;
+  color: var(--export-muted, #687780);
+  background: #f5f7f9;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.tooling-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}

@@ -1,108 +1,269 @@
-import { useState } from "react";
-import type { FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 
 import { AlertBlock } from "genesys-react-components";
-import {
-  GenesysDevIcon,
-  GenesysDevIcons,
-} from "genesys-dev-icons";
+import { GenesysDevIcon, GenesysDevIcons } from "genesys-dev-icons";
 
-type StorageProvider = "aws-s3" | "azure-blob";
+import { useSupabaseAuth } from "../../auth/useSupabaseAuth";
+import { supabase } from "../../lib/supabaseClient";
 
-type AzureAuthMethod =
-  | "connection-string"
-  | "sas-token"
-  | "managed-identity";
+type StorageProvider =
+  | "cloudflare-r2"
+  | "google-cloud-storage"
+  | "azure-blob"
+  | "aws-s3"
+  | "oracle-object-storage";
+type StorageValue = string | boolean;
+type StorageSettings = Record<string, StorageValue>;
+type StorageCredentials = Record<string, string>;
+type FieldSource = "settings" | "credentials";
+type FieldKind = "text" | "password" | "textarea" | "select" | "url";
+type FieldOption = { label: string; value: string };
+type FieldSpec = {
+  key: string;
+  label: string;
+  source: FieldSource;
+  kind?: FieldKind;
+  required?: boolean;
+  placeholder?: string;
+  help?: string;
+  options?: FieldOption[];
+  showWhen?: { key: string; value: string };
+  fullWidth?: boolean;
+};
 
-type StorageConfiguration = {
+type StorageAccount = {
   id: string;
   name: string;
   provider: StorageProvider;
   environment: string;
   enabled: boolean;
-  awsRegion: string;
-  bucketName: string;
-  bucketPrefix: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken: string;
-  storageAccountName: string;
-  containerName: string;
-  azureAuthMethod: AzureAuthMethod;
-  connectionString: string;
-  sasToken: string;
-  endpoint: string;
   description: string;
+  settings: StorageSettings;
+  credential_keys: string[];
+  created_at: string;
+  updated_at: string;
 };
 
-type StorageFormData = Omit<StorageConfiguration, "id">;
-
-const EMPTY_FORM: StorageFormData = {
-  name: "",
-  provider: "aws-s3",
-  environment: "Production",
-  enabled: true,
-  awsRegion: "",
-  bucketName: "",
-  bucketPrefix: "",
-  accessKeyId: "",
-  secretAccessKey: "",
-  sessionToken: "",
-  storageAccountName: "",
-  containerName: "",
-  azureAuthMethod: "connection-string",
-  connectionString: "",
-  sasToken: "",
-  endpoint: "",
-  description: "",
+type StorageFormData = {
+  name: string;
+  provider: StorageProvider;
+  environment: string;
+  enabled: boolean;
+  description: string;
+  settings: StorageSettings;
+  credentials: StorageCredentials;
 };
 
-function redactAccessKey(value: string): string {
-  const trimmed = value.trim();
+const PROVIDER_LABELS: Record<StorageProvider, string> = {
+  "cloudflare-r2": "Cloudflare R2",
+  "google-cloud-storage": "Google Cloud Storage",
+  "azure-blob": "Microsoft Azure Blob Storage",
+  "aws-s3": "Amazon S3",
+  "oracle-object-storage": "Oracle Cloud Infrastructure Object Storage",
+};
 
-  if (!trimmed) return "Not configured";
-  if (trimmed.length <= 8) return "[REDACTED]";
+const PROVIDER_LOGOS: Record<StorageProvider, string> = {
+  "cloudflare-r2": "/images/storage-providers/cloudflare.svg",
+  "google-cloud-storage": "/images/storage-providers/google-cloud.svg",
+  "azure-blob": "/images/storage-providers/microsoft-azure.svg",
+  "aws-s3": "/images/storage-providers/amazon-aws.svg",
+  "oracle-object-storage": "/images/storage-providers/oracle-cloud.svg",
+};
 
-  return `${trimmed.slice(0, 4)}[REDACTED]${trimmed.slice(-4)}`;
+const DEFAULT_SETTINGS: Record<StorageProvider, StorageSettings> = {
+  "cloudflare-r2": {
+    accountId: "", bucketName: "", authMethod: "access-key",
+  },
+  "google-cloud-storage": {
+    authMethod: "service-account-json", bucketName: "",
+  },
+  "azure-blob": {
+    authMethod: "sas-token", storageAccountName: "", containerName: "",
+  },
+  "aws-s3": {
+    authMethod: "access-keys", region: "", bucketName: "",
+  },
+  "oracle-object-storage": {
+    authMethod: "api-key", region: "", namespaceName: "", bucketName: "",
+    tenancyOcid: "", userOcid: "", fingerprint: "",
+  },
+};
+
+/* Only fields required to locate an existing bucket/container and authenticate.
+   Endpoint URLs are derived from the provider's standard endpoint convention. */
+const PROVIDER_FIELDS: Record<StorageProvider, FieldSpec[]> = {
+  "cloudflare-r2": [
+    { key: "accountId", label: "Cloudflare account ID", source: "settings", required: true, placeholder: "Cloudflare account ID" },
+    { key: "bucketName", label: "R2 bucket name", source: "settings", required: true, placeholder: "genesys-export-backups" },
+    { key: "r2AccessKeyId", label: "R2 Access Key ID", source: "credentials", required: true, placeholder: "Enter Access Key ID" },
+    { key: "r2SecretAccessKey", label: "R2 Secret Access Key", source: "credentials", kind: "password", required: true, placeholder: "Enter Secret Access Key" },
+  ],
+  "google-cloud-storage": [
+    { key: "bucketName", label: "Storage bucket name", source: "settings", required: true, placeholder: "genesys-export-backups" },
+    { key: "gcsServiceAccountJson", label: "Service account JSON key", source: "credentials", kind: "textarea", required: true, placeholder: "Paste the complete service account JSON key", help: "The service account must have object read, create/write, delete and list permissions on this existing bucket.", fullWidth: true },
+  ],
+  "azure-blob": [
+    { key: "storageAccountName", label: "Storage account name", source: "settings", required: true, placeholder: "mystorageaccount" },
+    { key: "containerName", label: "Blob container name", source: "settings", required: true, placeholder: "export-backups" },
+    { key: "azureSasToken", label: "Container SAS token", source: "credentials", kind: "password", required: true, placeholder: "Paste SAS token (with or without leading ?)", help: "Use a container-scoped SAS with read, create, write, delete and list permissions (r, c, w, d, l).", fullWidth: true },
+  ],
+  "aws-s3": [
+    { key: "region", label: "AWS Region", source: "settings", required: true, placeholder: "ap-southeast-2" },
+    { key: "bucketName", label: "S3 bucket name", source: "settings", required: true, placeholder: "genesys-export-backups" },
+    { key: "awsAccessKeyId", label: "AWS Access Key ID", source: "credentials", required: true, placeholder: "Enter Access Key ID" },
+    { key: "awsSecretAccessKey", label: "AWS Secret Access Key", source: "credentials", kind: "password", required: true, placeholder: "Enter Secret Access Key" },
+    { key: "awsSessionToken", label: "Session token (optional)", source: "credentials", kind: "password", placeholder: "Only for temporary credentials", fullWidth: true },
+  ],
+  "oracle-object-storage": [
+    { key: "region", label: "OCI Region", source: "settings", required: true, placeholder: "ap-sydney-1" },
+    { key: "namespaceName", label: "Object Storage namespace", source: "settings", required: true, placeholder: "Namespace shown in OCI tenancy details" },
+    { key: "bucketName", label: "Bucket name", source: "settings", required: true, placeholder: "genesys-export-backups" },
+    { key: "tenancyOcid", label: "Tenancy OCID", source: "settings", required: true, placeholder: "ocid1.tenancy..." },
+    { key: "userOcid", label: "User OCID", source: "settings", required: true, placeholder: "ocid1.user..." },
+    { key: "fingerprint", label: "API signing key fingerprint", source: "settings", required: true, placeholder: "12:34:56:..." },
+    { key: "ociPrivateKeyPem", label: "Private key PEM", source: "credentials", kind: "textarea", required: true, placeholder: "Paste the complete PEM private key", help: "The OCI user must have permission to read, create, overwrite and delete objects in this existing bucket.", fullWidth: true },
+    { key: "ociPrivateKeyPassphrase", label: "Private key passphrase (optional)", source: "credentials", kind: "password", placeholder: "Only if the private key is encrypted", fullWidth: true },
+  ],
+};
+
+function blankForm(provider: StorageProvider = "cloudflare-r2"): StorageFormData {
+  return {
+    name: "",
+    provider,
+    environment: "Production",
+    enabled: true,
+    description: "",
+    settings: { ...DEFAULT_SETTINGS[provider] },
+    credentials: {},
+  };
 }
 
-/**
- * Storage account design prototype.
- *
- * The records and any credentials entered are held only in React
- * memory. Nothing is written to Supabase, localStorage or sessionStorage.
- * Refreshing the page clears this prototype data.
- */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isProvider(value: unknown): value is StorageProvider {
+  return typeof value === "string" && value in PROVIDER_LABELS;
+}
+
+function parseStorageAccount(value: unknown): StorageAccount {
+  if (!isRecord(value) || !isProvider(value.provider) || !isRecord(value.settings)) {
+    throw new Error("Supabase returned an invalid storage account record.");
+  }
+  if (
+    typeof value.id !== "string" || typeof value.name !== "string" ||
+    typeof value.environment !== "string" || typeof value.enabled !== "boolean" ||
+    typeof value.description !== "string" || !Array.isArray(value.credential_keys) ||
+    typeof value.created_at !== "string" || typeof value.updated_at !== "string"
+  ) {
+    throw new Error("Supabase returned an incomplete storage account record.");
+  }
+  const credentials = value.credential_keys.filter((key): key is string => typeof key === "string");
+  const settings: StorageSettings = {};
+  for (const [key, item] of Object.entries(value.settings)) {
+    if (typeof item === "string" || typeof item === "boolean") settings[key] = item;
+  }
+  return { ...value, settings, credential_keys: credentials } as StorageAccount;
+}
+
+function settingText(settings: StorageSettings, key: string): string {
+  const value = settings[key];
+  return typeof value === "string" ? value : value === true ? "true" : value === false ? "false" : "";
+}
+
+function connectionSettings(provider: StorageProvider, source: StorageSettings): StorageSettings {
+  const allowedKeys: Record<StorageProvider, string[]> = {
+    "cloudflare-r2": ["accountId", "bucketName", "authMethod"],
+    "google-cloud-storage": ["bucketName", "authMethod"],
+    "azure-blob": ["storageAccountName", "containerName", "authMethod"],
+    "aws-s3": ["region", "bucketName", "authMethod"],
+    "oracle-object-storage": ["region", "namespaceName", "bucketName", "tenancyOcid", "userOcid", "fingerprint", "authMethod"],
+  };
+  const result: StorageSettings = { authMethod: DEFAULT_SETTINGS[provider].authMethod };
+  for (const key of allowedKeys[provider]) {
+    if (key === "authMethod") continue;
+    const value = source[key];
+    if (typeof value === "string" || typeof value === "boolean") result[key] = value;
+  }
+  return result;
+}
+
+function targetSummary(item: StorageAccount): string {
+  if (item.provider === "cloudflare-r2" || item.provider === "aws-s3" || item.provider === "google-cloud-storage") {
+    return settingText(item.settings, "bucketName");
+  }
+  if (item.provider === "azure-blob") {
+    return `${settingText(item.settings, "storageAccountName")}/${settingText(item.settings, "containerName")}`;
+  }
+  return `${settingText(item.settings, "namespaceName")}/${settingText(item.settings, "bucketName")}`;
+}
+
+function requiredCredentialKeys(provider: StorageProvider): string[] {
+  switch (provider) {
+    case "cloudflare-r2": return ["r2AccessKeyId", "r2SecretAccessKey"];
+    case "google-cloud-storage": return ["gcsServiceAccountJson"];
+    case "azure-blob": return ["azureSasToken"];
+    case "aws-s3": return ["awsAccessKeyId", "awsSecretAccessKey"];
+    case "oracle-object-storage": return ["ociPrivateKeyPem"];
+  }
+}
+
 export default function StorageAccountsSection() {
-  const [configurations, setConfigurations] =
-    useState<StorageConfiguration[]>([]);
+  const { user: standaloneUser } = useSupabaseAuth();
+  const [accounts, setAccounts] = useState<StorageAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<StorageFormData>({ ...EMPTY_FORM });
+  const [form, setForm] = useState<StorageFormData>(() => blankForm());
   const [formError, setFormError] = useState("");
   const [sectionError, setSectionError] = useState("");
 
+  const fields = useMemo(() => PROVIDER_FIELDS[form.provider], [form.provider]);
+  const loadAccounts = useCallback(async () => {
+    setSectionError("");
+    setLoading(true);
+    try {
+      if (!standaloneUser?.id) {
+        setAccounts([]);
+        return;
+      }
+      const { data, error } = await supabase.rpc("list_storage_accounts");
+      if (error) throw new Error(error.message);
+      if (!Array.isArray(data)) throw new Error("Supabase returned an unexpected storage account list.");
+      setAccounts(data.map(parseStorageAccount));
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Unable to load storage accounts.");
+    } finally {
+      setLoading(false);
+    }
+  }, [standaloneUser?.id]);
+
+  useEffect(() => {
+    void loadAccounts();
+  }, [loadAccounts]);
+
   function openNewForm() {
     setEditingId(null);
-    setForm({ ...EMPTY_FORM });
+    setForm(blankForm());
     setFormError("");
     setSectionError("");
     setFormOpen(true);
   }
 
-  function openEditForm(item: StorageConfiguration) {
-    const { id, ...editable } = item;
-
-    setEditingId(id);
+  function openEditForm(item: StorageAccount) {
+    setEditingId(item.id);
     setForm({
-      ...editable,
-      // As with the tooling configuration form, don't show existing
-      // secret values in the input. Blank values retain them on save.
-      accessKeyId: "",
-      secretAccessKey: "",
-      sessionToken: "",
-      connectionString: "",
-      sasToken: "",
+      name: item.name,
+      provider: item.provider,
+      environment: item.environment,
+      enabled: item.enabled,
+      description: "",
+      settings: connectionSettings(item.provider, item.settings),
+      // Existing credentials are never loaded back from Vault into the browser.
+      // Blank inputs mean "retain the saved value" when this form is saved.
+      credentials: {},
     });
     setFormError("");
     setSectionError("");
@@ -112,129 +273,180 @@ export default function StorageAccountsSection() {
   function closeForm() {
     setFormOpen(false);
     setEditingId(null);
-    setForm({ ...EMPTY_FORM });
+    setForm(blankForm());
     setFormError("");
   }
 
-  function saveConfiguration(event: FormEvent<HTMLFormElement>) {
+  function updateSetting(key: string, value: StorageValue) {
+    setForm((current) => ({ ...current, settings: { ...current.settings, [key]: value } }));
+  }
+
+  function updateCredential(key: string, value: string) {
+    setForm((current) => ({ ...current, credentials: { ...current.credentials, [key]: value } }));
+  }
+
+  function changeProvider(provider: StorageProvider) {
+    setForm((current) => ({ ...current, provider, settings: { ...DEFAULT_SETTINGS[provider] }, credentials: {} }));
+  }
+
+  function validateForm(): string {
+    if (!form.name.trim()) return "Enter a name for this storage account.";
+    if (!standaloneUser?.id) return "Sign in to the Export Manager account before saving storage accounts.";
+
+    for (const field of fields) {
+      if (field.showWhen && settingText(form.settings, field.showWhen.key) !== field.showWhen.value) continue;
+      if (!field.required) continue;
+      if (field.source === "settings") {
+        const value = settingText(form.settings, field.key).trim();
+        if (!value) return `Enter ${field.label.toLowerCase()}.`;
+      } else {
+        const entered = (form.credentials[field.key] || "").trim();
+        const alreadySaved = Boolean(editingId && accounts.find((item) => item.id === editingId)?.credential_keys.includes(field.key));
+        if (!entered && !alreadySaved) return `Enter ${field.label.toLowerCase()}.`;
+      }
+    }
+
+    const jsonValue = form.credentials.gcsServiceAccountJson?.trim();
+    if (form.provider === "google-cloud-storage" && settingText(form.settings, "authMethod") === "service-account-json" && jsonValue) {
+      try {
+        const parsed: unknown = JSON.parse(jsonValue);
+        if (!isRecord(parsed) || parsed.type !== "service_account" || typeof parsed.client_email !== "string" || typeof parsed.private_key !== "string") {
+          return "The Google credential JSON does not look like a service account key file.";
+        }
+      } catch {
+        return "The Google service account credential must be valid JSON.";
+      }
+    }
+
+    return "";
+  }
+
+  async function saveConfiguration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
     setSectionError("");
 
-    const name = form.name.trim();
-    if (!name) {
-      setFormError("Enter a name for this storage configuration.");
+    const validationError = validateForm();
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
 
-    const existing = configurations.find((item) => item.id === editingId);
+    setSaving(true);
+    try {
+      const visibleCredentialKeys = new Set(
+        fields.filter((field) => field.source === "credentials" && (!field.showWhen || settingText(form.settings, field.showWhen.key) === field.showWhen.value)).map((field) => field.key),
+      );
+      const credentials: StorageCredentials = {};
+      for (const [key, value] of Object.entries(form.credentials)) {
+        if (visibleCredentialKeys.has(key) && value.trim()) credentials[key] = value;
+      }
 
-    const accessKeyId =
-      form.accessKeyId.trim() || existing?.accessKeyId || "";
-    const secretAccessKey =
-      form.secretAccessKey || existing?.secretAccessKey || "";
-    const sessionToken =
-      form.sessionToken || existing?.sessionToken || "";
-    const connectionString =
-      form.connectionString || existing?.connectionString || "";
-    const sasToken = form.sasToken || existing?.sasToken || "";
-
-    if (form.provider === "aws-s3") {
-      if (!form.awsRegion.trim()) {
-        setFormError("Enter the AWS Region.");
-        return;
-      }
-      if (!form.bucketName.trim()) {
-        setFormError("Enter the S3 bucket name.");
-        return;
-      }
-      if (!accessKeyId || !secretAccessKey) {
-        setFormError(
-          "Enter an AWS Access Key ID and Secret Access Key. This prototype keeps credentials only in page memory.",
-        );
-        return;
-      }
-    } else {
-      if (!form.storageAccountName.trim()) {
-        setFormError("Enter the Azure Storage Account name.");
-        return;
-      }
-      if (!form.containerName.trim()) {
-        setFormError("Enter the Azure Blob container name.");
-        return;
-      }
-      if (
-        form.azureAuthMethod === "connection-string" &&
-        !connectionString.trim()
-      ) {
-        setFormError("Enter the Azure connection string.");
-        return;
-      }
-      if (
-        form.azureAuthMethod === "sas-token" &&
-        !sasToken.trim()
-      ) {
-        setFormError("Enter the Azure SAS token.");
-        return;
-      }
+      const { data, error } = await supabase.rpc("save_storage_account", {
+        p_id: editingId,
+        p_name: form.name.trim(),
+        p_provider: form.provider,
+        p_environment: form.environment,
+        p_enabled: form.enabled,
+        p_description: "",
+        p_settings: connectionSettings(form.provider, form.settings),
+        p_credentials: credentials,
+      });
+      if (error) throw new Error(error.message);
+      const saved = parseStorageAccount(data);
+      setAccounts((current) => {
+        const exists = current.some((item) => item.id === saved.id);
+        return exists ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current];
+      });
+      closeForm();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Unable to save this storage account.");
+    } finally {
+      setSaving(false);
     }
+  }
 
-    const saved: StorageConfiguration = {
-      ...form,
-      id: editingId || crypto.randomUUID(),
-      name,
-      awsRegion: form.awsRegion.trim(),
-      bucketName: form.bucketName.trim(),
-      bucketPrefix: form.bucketPrefix.trim(),
-      accessKeyId,
-      secretAccessKey,
-      sessionToken,
-      storageAccountName: form.storageAccountName.trim(),
-      containerName: form.containerName.trim(),
-      connectionString,
-      sasToken,
-      endpoint: form.endpoint.trim(),
-      description: form.description.trim(),
+  async function toggleAccount(item: StorageAccount) {
+    if (saving) return;
+    setSaving(true);
+    setSectionError("");
+    try {
+      const { data, error } = await supabase.rpc("save_storage_account", {
+        p_id: item.id,
+        p_name: item.name,
+        p_provider: item.provider,
+        p_environment: item.environment,
+        p_enabled: !item.enabled,
+        p_description: item.description,
+        p_settings: connectionSettings(item.provider, item.settings),
+        p_credentials: {},
+      });
+      if (error) throw new Error(error.message);
+      const updated = parseStorageAccount(data);
+      setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account));
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Unable to change the storage account state.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeAccount(item: StorageAccount) {
+    if (!window.confirm(`Remove "${item.name}" and its stored provider credentials?`)) return;
+    setSaving(true);
+    setSectionError("");
+    try {
+      const { data, error } = await supabase.rpc("delete_storage_account", { p_id: item.id });
+      if (error) throw new Error(error.message);
+      if (data !== true) throw new Error("The storage account was not found or was already removed.");
+      setAccounts((current) => current.filter((account) => account.id !== item.id));
+      if (editingId === item.id) closeForm();
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Unable to remove this storage account.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function renderField(field: FieldSpec) {
+    if (field.showWhen && settingText(form.settings, field.showWhen.key) !== field.showWhen.value) return null;
+    const isCredential = field.source === "credentials";
+    const value = isCredential ? (form.credentials[field.key] || "") : settingText(form.settings, field.key);
+    const savedCredential = isCredential && Boolean(editingId && accounts.find((item) => item.id === editingId)?.credential_keys.includes(field.key));
+    const required = Boolean(field.required && (!isCredential || !savedCredential));
+    const className = `tooling-field${field.fullWidth ? " tooling-field-full" : ""}`;
+    const common = {
+      value,
+      placeholder: field.placeholder || "",
+      required,
+      onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        if (isCredential) updateCredential(field.key, event.target.value);
+        else updateSetting(field.key, event.target.value);
+      },
     };
 
-    setConfigurations((current) =>
-      editingId
-        ? current.map((item) => (item.id === editingId ? saved : item))
-        : [saved, ...current],
+    return (
+      <label className={className} key={`${field.source}-${field.key}`}>
+        <span>{field.label}{required ? " *" : ""}</span>
+        {field.kind === "select" ? (
+          <select {...common} className="auth-input">
+            {(field.options || []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        ) : field.kind === "textarea" ? (
+          <textarea {...common} className="tooling-textarea" rows={field.key === "gcsServiceAccountJson" || field.key === "ociPrivateKeyPem" ? 6 : 3} autoComplete="new-password" />
+        ) : (
+          <input
+            {...common}
+            className="auth-input"
+            type={field.kind === "password" ? "password" : field.kind === "url" ? "url" : "text"}
+            autoComplete={isCredential ? "new-password" : "off"}
+            spellCheck={false}
+          />
+        )}
+        {field.help && <small className="storage-field-help">{field.help}</small>}
+        {savedCredential && <small className="storage-field-help">A value is already stored securely. Leave this blank to keep it, or enter a replacement.</small>}
+      </label>
     );
-
-    closeForm();
-  }
-
-  function toggleConfiguration(item: StorageConfiguration) {
-    setConfigurations((current) =>
-      current.map((configuration) =>
-        configuration.id === item.id
-          ? { ...configuration, enabled: !configuration.enabled }
-          : configuration,
-      ),
-    );
-  }
-
-  function removeConfiguration(item: StorageConfiguration) {
-    const confirmed = window.confirm(
-      `Remove the storage configuration "${item.name}" from this prototype session?`,
-    );
-    if (!confirmed) return;
-
-    setConfigurations((current) =>
-      current.filter((configuration) => configuration.id !== item.id),
-    );
-
-    if (editingId === item.id) closeForm();
-    setSectionError("");
-  }
-
-  function updateForm<K extends keyof StorageFormData>(
-    key: K,
-    value: StorageFormData[K],
-  ) {
-    setForm((current) => ({ ...current, [key]: value }));
   }
 
   return (
@@ -242,490 +454,105 @@ export default function StorageAccountsSection() {
       <div className="tooling-section-heading">
         <div>
           <h2 className="section-title">Storage accounts</h2>
-          <p className="section-description">
-            Configure AWS S3 and Azure Blob Storage destinations for
-            future exports and backups.
-          </p>
+          <p className="section-description">Connect to existing buckets and containers for exported files and backups.</p>
         </div>
-
-        <button
-          type="button"
-          className="tooling-primary-button"
-          onClick={() => (formOpen ? closeForm() : openNewForm())}
-        >
+        <button type="button" className="tooling-primary-button" onClick={() => formOpen ? closeForm() : openNewForm()} disabled={saving}>
           {formOpen ? "Close form" : "+ Add storage account"}
         </button>
       </div>
 
       <div className="tooling-notice">
-        Design prototype only. Configurations and credentials entered here
-        stay in page memory and are not saved to Supabase or browser storage.
-        Reloading the page clears them. Connection tests and uploads are not
-        implemented yet. Do not enter production secrets into this prototype.
+        This form connects to existing buckets and containers only; it never creates them. Credentials are stored in Supabase Vault and never returned to the browser. Grant only the permissions required to list, read, create/write and delete objects. Saving does not test the connection or upload files.
       </div>
 
-      {sectionError && (
-        <AlertBlock alertType="critical" title="Storage accounts">
-          {sectionError}
-        </AlertBlock>
-      )}
-
-      {formError && (
-        <AlertBlock
-          alertType="critical"
-          title="Check the storage account form"
-        >
-          {formError}
-        </AlertBlock>
-      )}
+      {!standaloneUser?.id && <AlertBlock alertType="critical" title="Sign in required">Sign in to your Export Manager account to load and save storage accounts.</AlertBlock>}
+      {sectionError && <AlertBlock alertType="critical" title="Storage accounts">{sectionError}</AlertBlock>}
+      {formError && <AlertBlock alertType="critical" title="Check the storage account form">{formError}</AlertBlock>}
 
       {formOpen && (
         <form className="tooling-form" onSubmit={saveConfiguration}>
-          <h3 className="tooling-form-title">
-            {editingId ? "Edit storage account" : "Add storage account"}
-          </h3>
-
+          <h3 className="tooling-form-title">{editingId ? "Edit storage account" : "Add storage account"}</h3>
           <div className="tooling-form-grid">
             <label className="tooling-field">
-              <span>Configuration name</span>
-              <input
-                className="auth-input"
-                type="text"
-                value={form.name}
-                onChange={(event) => updateForm("name", event.target.value)}
-                placeholder="e.g. Production export backups"
-                maxLength={100}
-                required
-              />
+              <span>Configuration name *</span>
+              <input className="auth-input" type="text" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Production export backups" maxLength={100} required />
             </label>
-
-            <label className="tooling-field">
-              <span>Environment</span>
-              <select
-                className="auth-input"
-                value={form.environment}
-                onChange={(event) =>
-                  updateForm("environment", event.target.value)
-                }
-              >
-                <option value="Production">Production</option>
-                <option value="Test">Test</option>
-                <option value="Development">Development</option>
-              </select>
-            </label>
-
             <label className="tooling-field tooling-field-full">
               <span>Storage provider</span>
-              <select
-                className="auth-input"
-                value={form.provider}
-                onChange={(event) => {
-                  const provider = event.target.value as StorageProvider;
-                  setForm((current) => ({
-                    ...current,
-                    provider,
-                    azureAuthMethod: "connection-string",
-                  }));
-                }}
-              >
-                <option value="aws-s3">Amazon Web Services — S3</option>
-                <option value="azure-blob">
-                  Microsoft Azure — Blob Storage
-                </option>
+              <select className="auth-input" value={form.provider} disabled={Boolean(editingId)} onChange={(event) => changeProvider(event.target.value as StorageProvider)}>
+                <option value="cloudflare-r2">Cloudflare R2</option>
+                <option value="google-cloud-storage">Google Cloud Storage</option>
+                <option value="azure-blob">Microsoft Azure Blob Storage</option>
+                <option value="aws-s3">Amazon S3</option>
+                <option value="oracle-object-storage">Oracle Cloud Infrastructure Object Storage</option>
               </select>
+              {editingId && <small className="storage-field-help">Provider type is fixed after creation. Add another account to configure a different provider.</small>}
             </label>
-
-            {form.provider === "aws-s3" ? (
-              <>
-                <label className="tooling-field">
-                  <span>AWS Region</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={form.awsRegion}
-                    onChange={(event) =>
-                      updateForm("awsRegion", event.target.value)
-                    }
-                    placeholder="e.g. ap-southeast-2"
-                    required
-                  />
-                </label>
-
-                <label className="tooling-field">
-                  <span>S3 Bucket name</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={form.bucketName}
-                    onChange={(event) =>
-                      updateForm("bucketName", event.target.value)
-                    }
-                    placeholder="my-export-backups"
-                    required
-                  />
-                </label>
-
-                <label className="tooling-field tooling-field-full">
-                  <span>Object prefix / folder (optional)</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={form.bucketPrefix}
-                    onChange={(event) =>
-                      updateForm("bucketPrefix", event.target.value)
-                    }
-                    placeholder="genesys-cloud/production/"
-                  />
-                </label>
-
-                <label className="tooling-field">
-                  <span>AWS Access Key ID</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    autoComplete="off"
-                    value={form.accessKeyId}
-                    onChange={(event) =>
-                      updateForm("accessKeyId", event.target.value)
-                    }
-                    placeholder={
-                      editingId
-                        ? "Leave blank to keep existing value"
-                        : "Enter Access Key ID"
-                    }
-                    required={!editingId}
-                  />
-                </label>
-
-                <label className="tooling-field">
-                  <span>AWS Secret Access Key</span>
-                  <input
-                    className="auth-input"
-                    type="password"
-                    autoComplete="new-password"
-                    value={form.secretAccessKey}
-                    onChange={(event) =>
-                      updateForm("secretAccessKey", event.target.value)
-                    }
-                    placeholder={
-                      editingId
-                        ? "Leave blank to keep existing secret"
-                        : "Enter Secret Access Key"
-                    }
-                    required={!editingId}
-                  />
-                </label>
-
-                <label className="tooling-field tooling-field-full">
-                  <span>Session token (optional)</span>
-                  <input
-                    className="auth-input"
-                    type="password"
-                    autoComplete="new-password"
-                    value={form.sessionToken}
-                    onChange={(event) =>
-                      updateForm("sessionToken", event.target.value)
-                    }
-                    placeholder={
-                      editingId
-                        ? "Leave blank to keep existing token"
-                        : "Enter a temporary session token, if required"
-                    }
-                  />
-                </label>
-              </>
-            ) : (
-              <>
-                <label className="tooling-field">
-                  <span>Storage account name</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={form.storageAccountName}
-                    onChange={(event) =>
-                      updateForm("storageAccountName", event.target.value)
-                    }
-                    placeholder="mystorageaccount"
-                    required
-                  />
-                </label>
-
-                <label className="tooling-field">
-                  <span>Blob container name</span>
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={form.containerName}
-                    onChange={(event) =>
-                      updateForm("containerName", event.target.value)
-                    }
-                    placeholder="export-backups"
-                    required
-                  />
-                </label>
-
-                <label className="tooling-field tooling-field-full">
-                  <span>Authentication method</span>
-                  <select
-                    className="auth-input"
-                    value={form.azureAuthMethod}
-                    onChange={(event) =>
-                      updateForm(
-                        "azureAuthMethod",
-                        event.target.value as AzureAuthMethod,
-                      )
-                    }
-                  >
-                    <option value="connection-string">Connection string</option>
-                    <option value="sas-token">
-                      Shared Access Signature (SAS) token
-                    </option>
-                    <option value="managed-identity">
-                      Managed identity (future option)
-                    </option>
-                  </select>
-                </label>
-
-                {form.azureAuthMethod === "connection-string" && (
-                  <label className="tooling-field tooling-field-full">
-                    <span>Azure connection string</span>
-                    <input
-                      className="auth-input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={form.connectionString}
-                      onChange={(event) =>
-                        updateForm("connectionString", event.target.value)
-                      }
-                      placeholder={
-                        editingId
-                          ? "Leave blank to keep existing connection string"
-                          : "Enter Azure Storage connection string"
-                      }
-                      required={!editingId}
-                    />
-                  </label>
-                )}
-
-                {form.azureAuthMethod === "sas-token" && (
-                  <label className="tooling-field tooling-field-full">
-                    <span>Azure SAS token</span>
-                    <input
-                      className="auth-input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={form.sasToken}
-                      onChange={(event) =>
-                        updateForm("sasToken", event.target.value)
-                      }
-                      placeholder={
-                        editingId
-                          ? "Leave blank to keep existing SAS token"
-                          : "Enter a container-scoped SAS token"
-                      }
-                      required={!editingId}
-                    />
-                  </label>
-                )}
-
-                {form.azureAuthMethod === "managed-identity" && (
-                  <div className="tooling-field tooling-field-full">
-                    <span>Managed identity</span>
-                    <div className="config-value">
-                      Template only. Runtime identity configuration will be
-                      designed when storage integration is implemented.
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            <label className="tooling-field tooling-field-full">
-              <span>Custom endpoint (optional)</span>
-              <input
-                className="auth-input"
-                type="url"
-                value={form.endpoint}
-                onChange={(event) => updateForm("endpoint", event.target.value)}
-                placeholder="https://storage.example.com"
-              />
-            </label>
-
-            <label className="tooling-field tooling-field-full">
-              <span>Description / notes</span>
-              <textarea
-                className="tooling-textarea"
-                value={form.description}
-                onChange={(event) =>
-                  updateForm("description", event.target.value)
-                }
-                placeholder="Describe this destination and how it will be used."
-                rows={3}
-                maxLength={1000}
-              />
-            </label>
+            {fields.map((field) => renderField(field))}
           </div>
 
-          <label className="tooling-enabled-field">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(event) => updateForm("enabled", event.target.checked)}
-            />
-            <span>Configuration enabled</span>
-          </label>
+          <p className="storage-runtime-note">
+            Ensure the credential has object read, create/write, delete and (where needed) list permissions for this existing destination. Permissions are granted in the provider console, not here.
+          </p>
 
           <div className="tooling-form-actions">
-            <button
-              type="button"
-              className="tooling-secondary-button"
-              onClick={closeForm}
-            >
-              Cancel
-            </button>
-
-            <button type="submit" className="tooling-primary-button">
-              {editingId ? "Save changes" : "Add storage account"}
-            </button>
+            <button type="button" className="tooling-secondary-button" onClick={closeForm} disabled={saving}>Cancel</button>
+            <button type="submit" className="tooling-primary-button" disabled={saving}>{saving ? "Saving…" : editingId ? "Save changes" : "Add storage account"}</button>
           </div>
         </form>
       )}
 
-      {configurations.length === 0 ? (
+      {loading ? (
+        <div className="tooling-empty-state"><p>Loading storage accounts…</p></div>
+      ) : accounts.length === 0 ? (
         <div className="tooling-empty-state">
-          <div className="tooling-empty-icon">
-            <GenesysDevIcon icon={GenesysDevIcons.AppDataSource} />
-          </div>
+          <div className="tooling-empty-icon"><GenesysDevIcon icon={GenesysDevIcons.AppDataSource} /></div>
           <h3>No storage accounts configured</h3>
-          <p>
-            Add an AWS S3 bucket or Azure Blob Storage container to define
-            a future export destination. This prototype previews the
-            configuration experience only.
-          </p>
-          {!formOpen && (
-            <button
-              type="button"
-              className="tooling-secondary-button"
-              onClick={openNewForm}
-            >
-              Add your first storage account
-            </button>
-          )}
+          <p>Connect an existing bucket or container to define a destination for future exports and backups.</p>
+          {!formOpen && <button type="button" className="tooling-secondary-button" onClick={openNewForm}>Add your first storage account</button>}
         </div>
       ) : (
         <div className="tooling-config-list">
-          {configurations.map((item) => {
-            const isAws = item.provider === "aws-s3";
-
+          {accounts.map((item) => {
+            const currentCredentialKeys = requiredCredentialKeys(item.provider);
+            const hasRequiredCredentials = currentCredentialKeys.every((key) => item.credential_keys.includes(key));
             return (
               <article className="tooling-config-card" key={item.id}>
                 <div className="tooling-config-main">
                   <div className="tooling-config-icon">
-                    <GenesysDevIcon icon={GenesysDevIcons.AppDataSource} />
+                    <img
+                      src={PROVIDER_LOGOS[item.provider]}
+                      alt=""
+                      aria-hidden="true"
+                      width={28}
+                      height={28}
+                      loading="lazy"
+                      style={{
+                        display: "block",
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
                   </div>
-
                   <div className="tooling-config-copy">
                     <div className="tooling-config-title-row">
                       <h3>{item.name}</h3>
-                      <span
-                        className={
-                          "status-pill " +
-                          (item.enabled ? "status-completed" : "status-planned")
-                        }
-                      >
-                        {item.enabled ? "Enabled" : "Disabled"}
-                      </span>
+                      <span className={`status-pill ${item.enabled ? "status-completed" : "status-planned"}`}>{item.enabled ? "Enabled" : "Disabled"}</span>
                     </div>
-
-                    <span className="tooling-config-environment">
-                      {isAws ? "Amazon S3" : "Azure Blob Storage"} ·{" "}
-                      {item.environment}
-                    </span>
-
-                    {isAws ? (
-                      <>
-                        <p>Bucket: {item.bucketName || "Not configured"}</p>
-                        <p>Region: {item.awsRegion || "Not configured"}</p>
-                        <p>
-                          Access Key ID: {redactAccessKey(item.accessKeyId)}
-                        </p>
-                        <p>
-                          Secret Access Key:{" "}
-                          {item.secretAccessKey
-                            ? "Configured in page memory"
-                            : "Not configured"}
-                        </p>
-                        {item.bucketPrefix && <p>Prefix: {item.bucketPrefix}</p>}
-                      </>
-                    ) : (
-                      <>
-                        <p>
-                          Storage account:{" "}
-                          {item.storageAccountName || "Not configured"}
-                        </p>
-                        <p>
-                          Container: {item.containerName || "Not configured"}
-                        </p>
-                        <p>
-                          Authentication:{" "}
-                          {item.azureAuthMethod === "connection-string"
-                            ? "Connection string"
-                            : item.azureAuthMethod === "sas-token"
-                              ? "SAS token"
-                              : "Managed identity"}
-                        </p>
-                        <p>
-                          Credentials:{" "}
-                          {item.azureAuthMethod === "connection-string"
-                            ? item.connectionString
-                              ? "Configured in page memory"
-                              : "Not configured"
-                            : item.azureAuthMethod === "sas-token"
-                              ? item.sasToken
-                                ? "Configured in page memory"
-                                : "Not configured"
-                              : "Managed identity template"}
-                        </p>
-                      </>
-                    )}
-
-                    {item.endpoint && <p>Endpoint: {item.endpoint}</p>}
-                    {item.description && <p>{item.description}</p>}
+                    <span className="tooling-config-environment">{PROVIDER_LABELS[item.provider]}</span>
+                    <p>Destination: {targetSummary(item) || "Not configured"}</p>
+                    <p>Credentials: {hasRequiredCredentials ? "Credentials stored securely" : "Required credentials incomplete"}</p>
                   </div>
                 </div>
-
                 <div className="tooling-card-actions">
                   <label className="settings-switch">
-                    <input
-                      type="checkbox"
-                      checked={item.enabled}
-                      onChange={() => toggleConfiguration(item)}
-                      aria-label={"Enable " + item.name}
-                    />
-                    <span
-                      className="settings-switch-track"
-                      aria-hidden="true"
-                    />
-                    <span className="settings-switch-label">
-                      {item.enabled ? "Enabled" : "Disabled"}
-                    </span>
+                    <input type="checkbox" checked={item.enabled} onChange={() => void toggleAccount(item)} disabled={saving} aria-label={`Enable ${item.name}`} />
+                    <span className="settings-switch-track" aria-hidden="true" />
+                    <span className="settings-switch-label">{item.enabled ? "Enabled" : "Disabled"}</span>
                   </label>
-
-                  <button
-                    type="button"
-                    className="tooling-secondary-button"
-                    onClick={() => openEditForm(item)}
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    type="button"
-                    className="tooling-danger-button"
-                    onClick={() => removeConfiguration(item)}
-                  >
-                    Remove
-                  </button>
+                  <button type="button" className="tooling-secondary-button" onClick={() => openEditForm(item)} disabled={saving}>Edit</button>
+                  <button type="button" className="tooling-danger-button" onClick={() => void removeAccount(item)} disabled={saving}>Remove</button>
                 </div>
               </article>
             );
@@ -733,80 +560,33 @@ export default function StorageAccountsSection() {
         </div>
       )}
 
-      {/* Other major providers follow the planned-card pattern used on Resources. */}
       <div className="section-heading section-heading-spaced">
         <div>
-          <h2 className="section-title">Additional storage providers</h2>
+          <h2 className="section-title">Storage integrations</h2>
           <p className="section-description">
-            Other cloud object-storage destinations planned after the initial Cloudflare R2 integration.
+            Account configuration is available. Connection tests and automated
+            export uploads will be implemented with the storage execution backend.
           </p>
         </div>
-
-        <span className="placeholder-label">Planned</span>
+        <span className="placeholder-label">In development</span>
       </div>
 
       <div className="resource-placeholder-grid">
         {[
-          {
-            title: "Google Cloud Storage",
-            description:
-              "Connect Google Cloud Storage buckets for export packages, backup archives and retained versions.",
-            logoUrl: "/images/storage-providers/google-cloud.svg",
-            logoAlt: "Google Cloud logo",
-            logoWidth: 28,
-            logoHeight: 28,
-          },
-          {
-            title: "Microsoft Azure",
-            description:
-              "Use Azure Blob Storage containers for configuration exports, backup packages and long-term retention.",
-            logoUrl: "/images/storage-providers/microsoft-azure.svg",
-            logoAlt: "Microsoft Azure logo",
-            logoWidth: 28,
-            logoHeight: 28,
-          },
-          {
-            title: "Amazon Web Services (AWS)",
-            description:
-              "Add Amazon S3 buckets for export storage, backup archives and versioned objects.",
-            logoUrl: "/images/storage-providers/amazon-aws.svg",
-            logoAlt: "Amazon Web Services logo",
-            logoWidth: 32,
-            logoHeight: 24,
-          },
-          {
-            title: "Oracle Cloud Infrastructure",
-            description:
-              "Add Oracle Cloud Infrastructure Object Storage as an alternative destination for exports and backup archives.",
-            logoUrl: "/images/storage-providers/oracle-cloud.svg",
-            logoAlt: "Oracle logo",
-            logoWidth: 32,
-            logoHeight: 22,
-          },
+          { title: "Cloudflare R2", logoUrl: PROVIDER_LOGOS["cloudflare-r2"], description: "Connect to existing R2 buckets." },
+          { title: "Google Cloud Storage", logoUrl: PROVIDER_LOGOS["google-cloud-storage"], description: "Connect to existing Cloud Storage buckets." },
+          { title: "Microsoft Azure", logoUrl: PROVIDER_LOGOS["azure-blob"], description: "Connect to existing Blob Storage containers." },
+          { title: "Amazon S3", logoUrl: PROVIDER_LOGOS["aws-s3"], description: "Connect to existing S3 buckets." },
+          { title: "Oracle Cloud Infrastructure", logoUrl: PROVIDER_LOGOS["oracle-object-storage"], description: "Connect to existing OCI Object Storage buckets." },
         ].map((provider) => (
-          <article
-            className="resource-placeholder-card"
-            key={provider.title}
-          >
+          <article className="resource-placeholder-card" key={provider.title}>
             <div className="resource-placeholder-icon">
-              <img
-                src={provider.logoUrl}
-                alt={provider.logoAlt}
-                width={provider.logoWidth}
-                height={provider.logoHeight}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                style={{ objectFit: "contain" }}
-              />
+              <img src={provider.logoUrl} alt="" aria-hidden="true" width={32} height={28} loading="lazy" style={{ objectFit: "contain" }} />
             </div>
-
-            <span className="placeholder-label">Coming soon</span>
+            <span className="placeholder-label">Connection test planned</span>
             <h3>{provider.title}</h3>
             <p>{provider.description}</p>
-
-            <span className="resource-placeholder-footer">
-              Planned functionality
-            </span>
+            <span className="resource-placeholder-footer">Upload execution in development</span>
           </article>
         ))}
       </div>

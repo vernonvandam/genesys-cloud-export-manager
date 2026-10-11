@@ -237,11 +237,6 @@ export default function AppLayout() {
 
         <footer className="app-footer">
           <span>Genesys Cloud Export Manager</span>
-
-          <span>
-            <span className="footer-demo-dot" />
-            Demo dashboard · export operations are not connected
-          </span>
         </footer>
       </div>
     </div>
