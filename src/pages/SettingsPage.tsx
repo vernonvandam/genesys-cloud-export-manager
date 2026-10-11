@@ -26,7 +26,6 @@ import {
   type GenesysIdentityLink,
 } from "../lib/genesysIdentity";
 
-
 type ToolingConfiguration = {
   id: string;
   name: string;
@@ -78,8 +77,8 @@ function createDefaultGenesysForm(): GenesysIntegrationFormData {
 }
 
 /**
- * Redacts a Client ID for display in configuration summaries.
- * It retains the first and last four characters.
+ * Redacts a Client ID for display.
+ * The original value is never modified.
  */
 function redactClientId(
   clientId: string | null | undefined,
@@ -97,7 +96,9 @@ function redactClientId(
   return `${value.slice(0, 4)}[REDACTED]${value.slice(-4)}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -140,6 +141,7 @@ function parseToolingConfiguration(
 export default function SettingsPage() {
   const {
     startGenesysLogin,
+    disconnectGenesys,
     status: genesysAuthStatus,
     error: genesysAuthError,
   } = useAuth();
@@ -161,8 +163,6 @@ export default function SettingsPage() {
 
   // ---------------------------------------------------------
   // Tooling configuration state
-  // Configurations load exclusively from Supabase.
-  // No tooling data or secrets are stored in browser storage.
   // ---------------------------------------------------------
 
   const [toolingConfigurations, setToolingConfigurations] =
@@ -188,6 +188,9 @@ export default function SettingsPage() {
   const [integration, setIntegration] =
     useState<GenesysIntegration | null>(null);
 
+  const [genesysIdentityLink, setGenesysIdentityLink] =
+    useState<GenesysIdentityLink | null>(null);
+
   const [integrationForm, setIntegrationForm] =
     useState<GenesysIntegrationFormData>(
       createDefaultGenesysForm,
@@ -205,7 +208,7 @@ export default function SettingsPage() {
   const [integrationError, setIntegrationError] = useState("");
 
   // ---------------------------------------------------------
-  // Load Tooling configurations from Supabase
+  // Load tooling configurations from Supabase
   // ---------------------------------------------------------
 
   useEffect(() => {
@@ -231,15 +234,13 @@ export default function SettingsPage() {
           throw new Error(error.message);
         }
 
-        const rows = data as unknown;
-
-        if (!Array.isArray(rows)) {
+        if (!Array.isArray(data)) {
           throw new Error(
             "Supabase returned an unexpected tooling configuration list.",
           );
         }
 
-        const configurations = rows.map(
+        const configurations = data.map(
           parseToolingConfiguration,
         );
 
@@ -269,7 +270,7 @@ export default function SettingsPage() {
   }, [standaloneUser?.id]);
 
   // ---------------------------------------------------------
-  // Load the current user's Genesys configuration
+  // Load the user's Genesys configuration and linked identity
   // ---------------------------------------------------------
 
   useEffect(() => {
@@ -277,6 +278,7 @@ export default function SettingsPage() {
 
     async function loadIntegration() {
       setIntegration(null);
+      setGenesysIdentityLink(null);
 
       if (!standaloneUser?.id) {
         setIntegrationForm(createDefaultGenesysForm());
@@ -306,6 +308,18 @@ export default function SettingsPage() {
               }
             : createDefaultGenesysForm(),
         );
+
+        // Keep the verified identity link when the integration
+        // is disabled. The summary only displays it when enabled.
+        if (saved) {
+          const identity = await getSavedGenesysIdentity(
+            standaloneUser.id,
+          );
+
+          if (active) {
+            setGenesysIdentityLink(identity);
+          }
+        }
       } catch (error) {
         if (!active) return;
 
@@ -353,7 +367,7 @@ export default function SettingsPage() {
       clientId: item.client_id,
 
       // Never retrieve or prefill a saved Client Secret.
-      // An empty value during edit means keep the existing secret.
+      // An empty value during edit keeps the existing secret.
       clientSecret: "",
     });
 
@@ -401,9 +415,27 @@ export default function SettingsPage() {
       return;
     }
 
-    if (!editingToolingId && !clientSecret) {
+    const editingConfiguration = toolingConfigurations.find(
+      (item) => item.id === editingToolingId,
+    );
+
+    if (
+      !editingToolingId &&
+      !clientSecret
+    ) {
       setToolingFormError(
         "Enter the OAuth Client Secret for this new configuration.",
+      );
+      return;
+    }
+
+    if (
+      editingToolingId &&
+      !editingConfiguration?.has_secret &&
+      !clientSecret
+    ) {
+      setToolingFormError(
+        "Enter a Client Secret for this configuration.",
       );
       return;
     }
@@ -440,9 +472,7 @@ export default function SettingsPage() {
           p_enabled: toolingFormData.enabled,
           p_grant_type: toolingFormData.grantType,
           p_client_id: clientId,
-
-          // On edit, an empty secret retains the saved Vault secret.
-          // A supplied secret replaces it. On create, it is required.
+          // Supabase stores this server-side in Vault.
           p_client_secret: clientSecret,
         },
       );
@@ -465,7 +495,6 @@ export default function SettingsPage() {
           : [saved, ...current];
       });
 
-      // Clear the form so the secret is no longer held in component state.
       closeToolingForm();
     } catch (error) {
       setToolingFormError(
@@ -487,8 +516,6 @@ export default function SettingsPage() {
     setToolingSaving(true);
 
     try {
-      // Reuse the server-side save function. An empty secret on
-      // update retains the existing Vault secret.
       const { data, error } = await supabase.rpc(
         "save_tooling_configuration",
         {
@@ -500,6 +527,7 @@ export default function SettingsPage() {
           p_enabled: !item.enabled,
           p_grant_type: item.grant_type,
           p_client_id: item.client_id,
+          // Empty means retain the saved Vault secret.
           p_client_secret: "",
         },
       );
@@ -543,9 +571,7 @@ export default function SettingsPage() {
     try {
       const { data, error } = await supabase.rpc(
         "delete_tooling_configuration",
-        {
-          p_id: item.id,
-        },
+        { p_id: item.id },
       );
 
       if (error) {
@@ -646,9 +672,6 @@ export default function SettingsPage() {
       return;
     }
 
-    // An existing verified state may be retained only when the
-    // configuration remains unchanged. If any OAuth setting changes,
-    // the integration must be authenticated again.
     const configurationUnchanged = Boolean(
       integration &&
         integration.client_id === clientId &&
@@ -665,6 +688,8 @@ export default function SettingsPage() {
           client_id: clientId,
           region,
           redirect_uri: redirectUri,
+          // A changed OAuth configuration must be authenticated
+          // again before it can be enabled.
           enabled: Boolean(
             integration?.enabled &&
               configurationUnchanged,
@@ -679,6 +704,10 @@ export default function SettingsPage() {
         redirectUri: saved.redirect_uri,
       });
 
+      if (!configurationUnchanged) {
+        disconnectGenesys();
+      }
+
       setIntegrationFormOpen(false);
     } catch (error) {
       setIntegrationError(
@@ -692,14 +721,14 @@ export default function SettingsPage() {
   }
 
   /**
-   * When enabling the integration, start a real Genesys OAuth
-   * flow. Do not set the database enabled flag directly.
+   * Enabling starts the Genesys OAuth flow.
+   * The callback completes the verified identity link and enables
+   * the database record only after linking succeeds.
    *
-   * The OAuth callback page completes the verified identity link.
-   * The database enables the integration only after that succeeds.
-   *
-   * Turning the integration off remains a direct database update.
-   * It retains the verified identity link so it can be re-enabled.
+   * Disabling turns off the saved integration and clears the
+   * SDK token and Genesys identity from application memory.
+   * The verified database identity link remains available for
+   * the next time the integration is enabled.
    */
   async function handleToggleIntegration(enabled: boolean) {
     if (
@@ -713,8 +742,8 @@ export default function SettingsPage() {
     setIntegrationError("");
     setIntegrationSaving(true);
 
-    if (enabled) {
-      try {
+    try {
+      if (enabled) {
         await startGenesysLogin(
           {
             clientId: integration.client_id,
@@ -723,42 +752,31 @@ export default function SettingsPage() {
           },
           true,
         );
-      } catch (error) {
-        setIntegrationError(
-          error instanceof Error
-            ? error.message
-            : "Unable to start Genesys Cloud authentication.",
-        );
-      } finally {
-        setIntegrationSaving(false);
+
+        return;
       }
 
-      return;
-    }
-
-    if (!enabled) {
-  const updated = await setGenesysIntegrationEnabled(
-    standaloneUser.id,
-    false,
-  );
-
-  setIntegration(updated);
-  disconnectGenesys();
-  return;
-}
-
-    try {
+      // Update the database first. If this fails, keep the current
+      // SDK state so that the UI does not claim the integration
+      // was disabled when the server rejected the change.
       const updated = await setGenesysIntegrationEnabled(
         standaloneUser.id,
         false,
       );
 
       setIntegration(updated);
+
+      // Clear Genesys SDK token and user/organisation state.
+      // This does not sign the user out of a separate Genesys
+      // Cloud browser SSO session.
+      disconnectGenesys();
     } catch (error) {
       setIntegrationError(
         error instanceof Error
           ? error.message
-          : "Unable to disable Genesys Cloud authentication.",
+          : `Unable to ${
+              enabled ? "enable" : "disable"
+            } Genesys Cloud authentication.`,
       );
     } finally {
       setIntegrationSaving(false);
@@ -766,7 +784,13 @@ export default function SettingsPage() {
   }
 
   async function handleRemoveIntegration() {
-    if (!standaloneUser?.id || !integration) return;
+    if (
+      !standaloneUser?.id ||
+      !integration ||
+      integrationSaving
+    ) {
+      return;
+    }
 
     const confirmed = window.confirm(
       "Remove the saved Genesys Cloud authentication configuration? Your Export Manager account will not be affected.",
@@ -780,7 +804,10 @@ export default function SettingsPage() {
     try {
       await deleteGenesysIntegration(standaloneUser.id);
 
+      disconnectGenesys();
+
       setIntegration(null);
+      setGenesysIdentityLink(null);
       setIntegrationForm(createDefaultGenesysForm());
       setIntegrationFormOpen(false);
     } catch (error) {
@@ -802,6 +829,7 @@ export default function SettingsPage() {
     setSignOutError("");
 
     try {
+      disconnectGenesys();
       await signOut();
     } catch (error) {
       setSignOutError(
@@ -843,7 +871,8 @@ export default function SettingsPage() {
         throw new Error(error.message);
       }
 
-      // No tooling configuration or secret is kept in browser storage.
+      disconnectGenesys();
+
       await supabase.auth.signOut({ scope: "local" });
 
       window.location.replace("/");
@@ -877,6 +906,7 @@ export default function SettingsPage() {
       {/* =====================================================
           1. TOOLING CONFIGURATIONS
          ===================================================== */}
+
       <section className="panel tooling-panel">
         <div className="tooling-section-heading">
           <div>
@@ -1192,7 +1222,6 @@ export default function SettingsPage() {
                         </span>
 
                         <p>Grant Type: Client Credentials</p>
-
                         <p>
                           Client ID: {redactClientId(item.client_id)}
                         </p>
@@ -1228,9 +1257,7 @@ export default function SettingsPage() {
                       <button
                         type="button"
                         className="tooling-secondary-button"
-                        onClick={() =>
-                          openEditToolingForm(item)
-                        }
+                        onClick={() => openEditToolingForm(item)}
                         disabled={toolingSaving}
                       >
                         Edit
@@ -1258,6 +1285,7 @@ export default function SettingsPage() {
       {/* =====================================================
           2. GENESYS CLOUD AUTHENTICATION
          ===================================================== */}
+
       <section className="panel tooling-panel">
         <div className="tooling-section-heading">
           <div>
@@ -1286,9 +1314,9 @@ export default function SettingsPage() {
 
         <div className="tooling-notice">
           This configuration is separate from your Export
-          Manager email login. A saved or enabled configuration
-          does not necessarily mean an active Genesys session
-          exists.
+          Manager email login. Disabling the integration clears
+          the application SDK session, but does not necessarily
+          sign you out of a separate Genesys Cloud browser session.
         </div>
 
         {(integrationError ||
@@ -1349,6 +1377,29 @@ export default function SettingsPage() {
                         Client ID:{" "}
                         {redactClientId(integration.client_id)}
                       </p>
+
+                      {integration.enabled && (
+                        <>
+                          <ConfigRow
+                            label="Genesys organisation"
+                            value={
+                              genesysIdentityLink?.organization_name ||
+                              genesysIdentityLink?.organization_id ||
+                              "Not available"
+                            }
+                          />
+
+                          <ConfigRow
+                            label="Logged in Genesys user"
+                            value={
+                              genesysIdentityLink?.genesys_name ||
+                              genesysIdentityLink?.genesys_username ||
+                              genesysIdentityLink?.genesys_email ||
+                              "Not available"
+                            }
+                          />
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -1497,9 +1548,8 @@ export default function SettingsPage() {
                       required
                     />
                     <span className="auth-field-help">
-                      This must match the registered Genesys OAuth
-                      redirect URI. Callback handling will be
-                      implemented separately.
+                      This must exactly match the registered Genesys
+                      OAuth redirect URI.
                     </span>
                   </label>
                 </div>
@@ -1533,8 +1583,9 @@ export default function SettingsPage() {
       </section>
 
       {/* =====================================================
-          3. LOCAL ACCOUNT — LAST
+          3. LOCAL ACCOUNT
          ===================================================== */}
+
       {standaloneUser && (
         <section className="panel settings-panel">
           <div className="panel-heading">
@@ -1543,6 +1594,7 @@ export default function SettingsPage() {
                 icon={GenesysDevIcons.AppUserSolid}
               />
             </div>
+
             <div>
               <h2 className="section-title">Local account</h2>
               <p className="section-description">
