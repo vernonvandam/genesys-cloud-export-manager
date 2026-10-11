@@ -253,7 +253,7 @@ export default function GenesysAuthenticationSection() {
     <section className="panel tooling-panel">
       <div className="tooling-section-heading">
         <div>
-          <h2 className="section-title">Genesys Cloud authentication</h2>
+          <h2 className="section-title">Genesys Cloud integration authentication</h2>
           <p className="section-description">
             Manage the optional Genesys OAuth configuration used by Genesys-powered features.
           </p>

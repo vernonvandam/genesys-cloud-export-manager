@@ -732,6 +732,84 @@ export default function StorageAccountsSection() {
           })}
         </div>
       )}
+
+      {/* Other major providers follow the planned-card pattern used on Resources. */}
+      <div className="section-heading section-heading-spaced">
+        <div>
+          <h2 className="section-title">Additional storage providers</h2>
+          <p className="section-description">
+            Other cloud object-storage destinations planned after the initial Cloudflare R2 integration.
+          </p>
+        </div>
+
+        <span className="placeholder-label">Planned</span>
+      </div>
+
+      <div className="resource-placeholder-grid">
+        {[
+          {
+            title: "Google Cloud Storage",
+            description:
+              "Connect Google Cloud Storage buckets for export packages, backup archives and retained versions.",
+            logoUrl: "/images/storage-providers/google-cloud.svg",
+            logoAlt: "Google Cloud logo",
+            logoWidth: 28,
+            logoHeight: 28,
+          },
+          {
+            title: "Microsoft Azure",
+            description:
+              "Use Azure Blob Storage containers for configuration exports, backup packages and long-term retention.",
+            logoUrl: "/images/storage-providers/microsoft-azure.svg",
+            logoAlt: "Microsoft Azure logo",
+            logoWidth: 28,
+            logoHeight: 28,
+          },
+          {
+            title: "Amazon Web Services (AWS)",
+            description:
+              "Add Amazon S3 buckets for export storage, backup archives and versioned objects.",
+            logoUrl: "/images/storage-providers/amazon-aws.svg",
+            logoAlt: "Amazon Web Services logo",
+            logoWidth: 32,
+            logoHeight: 24,
+          },
+          {
+            title: "Oracle Cloud Infrastructure",
+            description:
+              "Add Oracle Cloud Infrastructure Object Storage as an alternative destination for exports and backup archives.",
+            logoUrl: "/images/storage-providers/oracle-cloud.svg",
+            logoAlt: "Oracle logo",
+            logoWidth: 32,
+            logoHeight: 22,
+          },
+        ].map((provider) => (
+          <article
+            className="resource-placeholder-card"
+            key={provider.title}
+          >
+            <div className="resource-placeholder-icon">
+              <img
+                src={provider.logoUrl}
+                alt={provider.logoAlt}
+                width={provider.logoWidth}
+                height={provider.logoHeight}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                style={{ objectFit: "contain" }}
+              />
+            </div>
+
+            <span className="placeholder-label">Coming soon</span>
+            <h3>{provider.title}</h3>
+            <p>{provider.description}</p>
+
+            <span className="resource-placeholder-footer">
+              Planned functionality
+            </span>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
