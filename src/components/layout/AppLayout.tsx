@@ -48,7 +48,7 @@ function getInitials(name?: string) {
 }
 
 export default function AppLayout() {
-  const { config, user } = useAuth()
+  const { user, organization } = useAuth()
   const location = useLocation()
 
   const pageTitle =
@@ -78,22 +78,33 @@ export default function AppLayout() {
           </div>
         </div>
 
-        <div className="org-context">
-          <span className="connection-dot" />
+        <div
+          className="org-context"
+          title={
+            organization?.name ||
+            organization?.id ||
+            'No Genesys organisation connected'
+          }
+        >
+          <span
+            className={`connection-dot${
+              organization?.id
+                ? ''
+                : ' connection-dot-disconnected'
+            }`}
+          />
 
           <div className="org-context-copy">
             <span className="org-context-label">
-              Connected region
+              Connected to organisation
             </span>
+
             <span className="org-context-value">
-              {config.region || 'Not configured'}
+              {organization?.name ||
+                organization?.id ||
+                'Not connected'}
             </span>
           </div>
-
-          <GenesysDevIcon
-            icon={GenesysDevIcons.AppChevronDown}
-            className="org-chevron"
-          />
         </div>
 
         <nav
