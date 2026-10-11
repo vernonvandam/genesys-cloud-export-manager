@@ -1,96 +1,75 @@
-import {
-  NavLink,
-  Outlet,
-  useLocation,
-} from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
-import {
-  GenesysDevIcon,
-  GenesysDevIcons,
-} from 'genesys-dev-icons'
+import { GenesysDevIcon, GenesysDevIcons } from "genesys-dev-icons";
 
-import { useAuth } from '../../auth/useAuth'
-import { useSupabaseAuth } from '../../auth/useSupabaseAuth'
+import { useAuth } from "../../auth/useAuth";
+import { useSupabaseAuth } from "../../auth/useSupabaseAuth";
 
 const navigationItems = [
   {
-    to: '/app',
-    label: 'Overview',
+    to: "/app",
+    label: "Overview",
     icon: GenesysDevIcons.AppTreeView,
     end: true,
   },
   {
-    to: '/app/resources',
-    label: 'Resources',
+    to: "/app/resources",
+    label: "Resources",
     icon: GenesysDevIcons.AppDataSource,
   },
   {
-    to: '/app/history',
-    label: 'Export history',
+    to: "/app/history",
+    label: "Export history",
     icon: GenesysDevIcons.AppDocumentEye,
   },
   {
-    to: '/app/settings',
-    label: 'Settings',
+    to: "/app/settings",
+    label: "Settings",
     icon: GenesysDevIcons.DestCog,
   },
-]
+];
 
 function getInitials(name?: string) {
-  if (!name?.trim()) return 'GC'
+  if (!name?.trim()) return "GC";
 
   return name
     .trim()
     .split(/\s+/)
     .slice(0, 2)
     .map((part) => part[0])
-    .join('')
-    .toUpperCase()
+    .join("")
+    .toUpperCase();
 }
 
 export default function AppLayout() {
-  const { user, organization } = useAuth()
-  const location = useLocation()
-  const {
-  user: standaloneUser,
-  profile: standaloneProfile,
-} = useSupabaseAuth()
+  const { user, organization } = useAuth();
+  const location = useLocation();
+  const { user: standaloneUser, profile: standaloneProfile } =
+    useSupabaseAuth();
 
-const displayName =
-  user?.name ||
-  standaloneProfile?.display_name ||
-  standaloneUser?.email ||
-  'User'
-
-const avatarName =
-  user?.name ||
-  standaloneProfile?.display_name ||
-  standaloneUser?.email
+  const displayName =
+    user?.name ||
+    standaloneProfile?.display_name ||
+    standaloneUser?.email ||
+    "User";
 
   const pageTitle =
-    navigationItems.find(
-      (item) => item.to === location.pathname,
-    )?.label || 'Overview'
+    navigationItems.find((item) => item.to === location.pathname)?.label ||
+    "Overview";
 
-  const initials = getInitials(user?.name)
+  const initials = getInitials(displayName);
 
   return (
     <div className="genesys-app genesys-app-light app-shell">
       <aside className="app-sidebar">
         <div className="sidebar-brand">
           <div className="brand-mark">
-            <GenesysDevIcon
-              icon={GenesysDevIcons.AppShieldCheck}
-            />
+            <GenesysDevIcon icon={GenesysDevIcons.AppShieldCheck} />
           </div>
 
           <div className="brand-copy">
-            <span className="brand-title">
-              Genesys Cloud
-            </span>
-            <span className="brand-subtitle">
-              Export Manager
-            </span>
+            <span className="brand-title">Genesys Cloud</span>
+            <span className="brand-subtitle">Export Manager</span>
           </div>
         </div>
 
@@ -99,37 +78,26 @@ const avatarName =
           title={
             organization?.name ||
             organization?.id ||
-            'No Genesys organisation connected'
+            "No Genesys organisation connected"
           }
         >
           <span
             className={`connection-dot${
-              organization?.id
-                ? ''
-                : ' connection-dot-disconnected'
+              organization?.id ? "" : " connection-dot-disconnected"
             }`}
           />
 
           <div className="org-context-copy">
-            <span className="org-context-label">
-              Connected to
-            </span>
+            <span className="org-context-label">Connected to</span>
 
             <span className="org-context-value">
-              {organization?.name ||
-                organization?.id ||
-                'Not connected'}
+              {organization?.name || organization?.id || "Not connected"}
             </span>
           </div>
         </div>
 
-        <nav
-          className="sidebar-nav"
-          aria-label="Main navigation"
-        >
-          <span className="nav-section-label">
-            Workspace
-          </span>
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          <span className="nav-section-label">Workspace</span>
 
           {navigationItems.map((item) => (
             <NavLink
@@ -137,14 +105,14 @@ const avatarName =
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `nav-item${isActive ? ' is-active' : ''}`
+                `nav-item${isActive ? " is-active" : ""}`
               }
             >
               <GenesysDevIcon icon={item.icon} />
 
               <span>{item.label}</span>
 
-              {item.to === '/app/history' && (
+              {item.to === "/app/history" && (
                 <span className="nav-count">3</span>
               )}
             </NavLink>
@@ -153,12 +121,10 @@ const avatarName =
 
         <div className="sidebar-bottom">
           <div className="sidebar-demo-note">
-            <GenesysDevIcon
-              icon={GenesysDevIcons.AppInfoSolid}
-            />
+            <GenesysDevIcon icon={GenesysDevIcons.AppInfoSolid} />
             <span>
-              Dashboard figures are sample data.
-              Export execution is not connected yet.
+              Dashboard figures are sample data. Export execution is not
+              connected yet.
             </span>
           </div>
 
@@ -170,17 +136,11 @@ const avatarName =
             <span className="user-avatar">{initials}</span>
 
             <span className="sidebar-user-copy">
-              <span className="sidebar-user-name">
-                {user?.name || 'Genesys user'}
-              </span>
-              <span className="sidebar-user-role">
-                Authenticated session
-              </span>
+              <span className="sidebar-user-name">{displayName}</span>
+              <span className="sidebar-user-role">Authenticated session</span>
             </span>
 
-            <GenesysDevIcon
-              icon={GenesysDevIcons.AppEllipsis}
-            />
+            <GenesysDevIcon icon={GenesysDevIcons.AppEllipsis} />
           </NavLink>
         </div>
       </aside>
@@ -188,9 +148,7 @@ const avatarName =
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-heading-group">
-            <p className="eyebrow">
-              WORKSPACE / {pageTitle.toUpperCase()}
-            </p>
+            <p className="eyebrow">WORKSPACE / {pageTitle.toUpperCase()}</p>
             <h1 className="topbar-title">{pageTitle}</h1>
           </div>
 
@@ -202,9 +160,7 @@ const avatarName =
 
             <div className="topbar-user">
               <span className="user-avatar">{initials}</span>
-              <span className="topbar-user-name">
-                {user?.name || 'Genesys user'}
-              </span>
+              <span className="topbar-user-name">{displayName}</span>
             </div>
           </div>
         </header>
@@ -218,11 +174,10 @@ const avatarName =
 
           <span>
             <span className="footer-demo-dot" />
-            Demo dashboard · export operations are not
-            connected
+            Demo dashboard · export operations are not connected
           </span>
         </footer>
       </div>
     </div>
-  )
+  );
 }

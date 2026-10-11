@@ -1,165 +1,133 @@
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from 'react'
-import type { ReactNode } from 'react'
+import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
-import { supabase } from '../lib/supabaseClient'
-import {
-  SupabaseAuthContext,
-  type UserProfile,
-} from './supabase-auth-context'
+import { supabase } from "../lib/supabaseClient";
+import { SupabaseAuthContext, type UserProfile } from "./supabase-auth-context";
 
-import type { User } from '@supabase/supabase-js'
-
+import type { User } from "@supabase/supabase-js";
 
 function errorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : String(error)
+  return error instanceof Error ? error.message : String(error);
 }
 
-export function SupabaseAuthProvider({
-  children,
-}: {
-  children: ReactNode
-}) {
-  const [user, setUser] =
-    useState<Awaited<
-      ReturnType<typeof supabase.auth.getUser>
-    >['data']['user']>(null)
+export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
 
-  const [profile, setProfile] =
-    useState<UserProfile | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  const [loading, setLoading] = useState(true)
-  const [profileLoading, setProfileLoading] = useState(false)
-  const [profileError, setProfileError] = useState('')
+  const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState("");
 
   useEffect(() => {
-    let active = true
+    let active = true;
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!active) return
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
 
-        const nextUser = session?.user ?? null
+      const nextUser = session?.user ?? null;
 
-        setUser(nextUser)
-        setLoading(false)
-        setProfileLoading(Boolean(nextUser))
-      },
-    )
+      setUser(nextUser);
+      setLoading(false);
+    });
 
-    void supabase.auth.getSession().then(
-      ({ data, error }) => {
-        if (!active) return
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
 
-        if (error) {
-          setProfileError(error.message)
-        }
+      if (error) {
+        setProfileError(error.message);
+      }
 
-        const nextUser = data.session?.user ?? null
+      const nextUser = data.session?.user ?? null;
 
-        setUser(nextUser)
-        setLoading(false)
-        setProfileLoading(Boolean(nextUser))
-      },
-    )
+      setUser(nextUser);
+      setLoading(false);
+    });
 
     return () => {
-      active = false
-      subscription.unsubscribe()
-    }
-  }, [])
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
-  const userId = user?.id ?? null
+  const userId = user?.id ?? null;
 
-  const loadProfile = useCallback(
-    async (id: string) => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'id, display_name, company_name, onboarding_completed, created_at, updated_at',
-        )
-        .eq('id', id)
-        .maybeSingle()
+  const loadProfile = useCallback(async (id: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        "id, display_name, company_name, onboarding_completed, created_at, updated_at",
+      )
+      .eq("id", id)
+      .maybeSingle();
 
-      if (error) throw error
+    if (error) throw error;
 
-      return (data as UserProfile | null) ?? null
-    },
-    [],
-  )
+    return (data as UserProfile | null) ?? null;
+  }, []);
 
   useEffect(() => {
-    let active = true
+    let active = true;
 
     if (!userId) {
-      setProfile(null)
-      setProfileError('')
-      setProfileLoading(false)
+      setProfile(null);
+      setProfileError("");
+      setProfileLoading(false);
 
       return () => {
-        active = false
-      }
+        active = false;
+      };
     }
 
-    setProfileLoading(true)
-    setProfileError('')
+    setProfileLoading(true);
+    setProfileError("");
 
     void loadProfile(userId)
       .then((result) => {
-        if (active) setProfile(result)
+        if (active) setProfile(result);
       })
       .catch((error: unknown) => {
         if (active) {
-          setProfile(null)
-          setProfileError(errorMessage(error))
+          setProfile(null);
+          setProfileError(errorMessage(error));
         }
       })
       .finally(() => {
-        if (active) setProfileLoading(false)
-      })
+        if (active) setProfileLoading(false);
+      });
 
     return () => {
-      active = false
-    }
-  }, [userId, loadProfile])
+      active = false;
+    };
+  }, [userId, loadProfile]);
 
   const refreshProfile = useCallback(async () => {
-    if (!userId) return
+    if (!userId) return;
 
-    setProfileLoading(true)
-    setProfileError('')
+    setProfileLoading(true);
+    setProfileError("");
 
     try {
-      const result = await loadProfile(userId)
-      setProfile(result)
+      const result = await loadProfile(userId);
+      setProfile(result);
     } catch (error) {
-      setProfileError(errorMessage(error))
-      throw error
+      setProfileError(errorMessage(error));
+      throw error;
     } finally {
-      setProfileLoading(false)
+      setProfileLoading(false);
     }
-  }, [userId, loadProfile])
+  }, [userId, loadProfile]);
 
   const saveProfile = useCallback(
-    async (
-      displayName: string,
-      companyName: string,
-    ) => {
+    async (displayName: string, companyName: string) => {
       if (!userId) {
-        throw new Error(
-          'You must be signed in to save your profile.',
-        )
+        throw new Error("You must be signed in to save your profile.");
       }
 
       const { data, error } = await supabase
-        .from('profiles')
+        .from("profiles")
         .upsert(
           {
             id: userId,
@@ -168,30 +136,30 @@ export function SupabaseAuthProvider({
             onboarding_completed: true,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'id' },
+          { onConflict: "id" },
         )
         .select(
-          'id, display_name, company_name, onboarding_completed, created_at, updated_at',
+          "id, display_name, company_name, onboarding_completed, created_at, updated_at",
         )
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      setProfile(data as UserProfile)
-      setProfileError('')
+      setProfile(data as UserProfile);
+      setProfileError("");
     },
     [userId],
-  )
+  );
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut();
 
-    if (error) throw error
+    if (error) throw error;
 
-    setUser(null)
-    setProfile(null)
-    setProfileError('')
-  }, [])
+    setUser(null);
+    setProfile(null);
+    setProfileError("");
+  }, []);
 
   return (
     <SupabaseAuthContext.Provider
@@ -208,5 +176,5 @@ export function SupabaseAuthProvider({
     >
       {children}
     </SupabaseAuthContext.Provider>
-  )
+  );
 }

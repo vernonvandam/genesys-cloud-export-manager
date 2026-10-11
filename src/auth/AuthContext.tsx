@@ -292,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       callbackHandled.current = true;
       void login();
     }
-  }, [login]);
+  }, [config, login]);
 
   const isBusy =
     status === "Connecting to Genesys Cloud..." ||

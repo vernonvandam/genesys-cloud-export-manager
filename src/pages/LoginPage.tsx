@@ -11,7 +11,6 @@ import {
 import { useAuth } from '../auth/useAuth'
 import { useSupabaseAuth } from '../auth/useSupabaseAuth'
 
-
 export default function LoginPage() {
   const {
     mode,
@@ -23,21 +22,19 @@ export default function LoginPage() {
     login,
   } = useAuth()
 
+  const {
+    user: standaloneUser,
+    profile: standaloneProfile,
+    loading: standaloneLoading,
+    profileLoading: standaloneProfileLoading,
+  } = useSupabaseAuth()
+
   const params = new URLSearchParams(
     window.location.search,
   )
 
   const isOAuthCallback =
     params.has('code') || params.has('error')
-
-  const hasError =
-    Boolean(error) ||
-    status === 'Authentication failed' ||
-    status === 'Configuration missing'
-
-  if (user) {
-    return <Navigate to="/app" replace />
-  }
 
   const isIntegrated =
     mode === 'integrated' &&
@@ -47,6 +44,11 @@ export default function LoginPage() {
       config.redirectUri,
     )
 
+  const hasError =
+    Boolean(error) ||
+    status === 'Authentication failed' ||
+    status === 'Configuration missing'
+
   const statusMessage =
     error ||
     (status === 'Connecting to Genesys Cloud...'
@@ -55,7 +57,13 @@ export default function LoginPage() {
         ? 'Verifying your Genesys Cloud identity and organisation.'
         : 'Your launch configuration is ready. Select Login to continue.')
 
-  // Callback: the authentication provider will process the code.
+  // An authenticated Genesys user can access the dashboard.
+  if (user) {
+    return <Navigate to="/app" replace />
+  }
+
+  // The authentication provider processes OAuth callbacks.
+  // Do not redirect or show the normal login choices first.
   if (isOAuthCallback) {
     return (
       <div className="genesys-app genesys-app-light auth-page">
@@ -65,10 +73,12 @@ export default function LoginPage() {
               icon={GenesysDevIcons.AppShieldCheck}
               className="auth-brand-icon"
             />
+
             <div>
               <p className="eyebrow">
                 GENESYS CLOUD WORKSPACE
               </p>
+
               <h1 className="auth-title">
                 Genesys Cloud Export Manager
               </h1>
@@ -91,7 +101,7 @@ export default function LoginPage() {
     )
   }
 
-  // Complete integrated launch: show one login button.
+  // Integrated launch: show only the Genesys login button.
   if (isIntegrated) {
     return (
       <div className="genesys-app genesys-app-light auth-page">
@@ -101,10 +111,12 @@ export default function LoginPage() {
               icon={GenesysDevIcons.AppShieldCheck}
               className="auth-brand-icon"
             />
+
             <div>
               <p className="eyebrow">
                 GENESYS CLOUD WORKSPACE
               </p>
+
               <h1 className="auth-title">
                 Genesys Cloud Export Manager
               </h1>
@@ -148,7 +160,65 @@ export default function LoginPage() {
     )
   }
 
-  // Standalone entry: no general-purpose login button.
+  // Standalone login: wait until the existing Supabase session
+  // has been checked before deciding whether to show login choices.
+  if (
+    standaloneLoading ||
+    (standaloneUser && standaloneProfileLoading)
+  ) {
+    return (
+      <div className="genesys-app genesys-app-light auth-page">
+        <main className="auth-card">
+          <header className="auth-heading">
+            <GenesysDevIcon
+              icon={GenesysDevIcons.AppShieldCheck}
+              className="auth-brand-icon"
+            />
+
+            <div>
+              <p className="eyebrow">
+                GENESYS CLOUD TOOLS
+              </p>
+
+              <h1 className="auth-title">
+                Genesys Cloud Export Manager
+              </h1>
+            </div>
+          </header>
+
+          <h2 className="auth-subtitle">
+            Checking your session
+          </h2>
+
+          <AlertBlock
+            alertType="info"
+            title="Please wait"
+            className="auth-status"
+          >
+            Checking your account and loading your profile.
+          </AlertBlock>
+        </main>
+      </div>
+    )
+  }
+
+  // A returning email user does not need to sign in again.
+  // Send them to onboarding if their profile is incomplete.
+  if (standaloneUser) {
+    return (
+      <Navigate
+        to={
+          standaloneProfile?.onboarding_completed
+            ? '/app'
+            : '/onboarding'
+        }
+        replace
+      />
+    )
+  }
+
+  // No existing session or integrated launch:
+  // offer the two standalone sign-in options.
   return (
     <div className="genesys-app genesys-app-light auth-page">
       <main className="auth-card">
@@ -157,10 +227,12 @@ export default function LoginPage() {
             icon={GenesysDevIcons.AppShieldCheck}
             className="auth-brand-icon"
           />
+
           <div>
             <p className="eyebrow">
               GENESYS CLOUD TOOLS
             </p>
+
             <h1 className="auth-title">
               Genesys Cloud Export Manager
             </h1>
@@ -200,6 +272,7 @@ export default function LoginPage() {
               <span className="auth-choice-title">
                 Connect to Genesys Cloud
               </span>
+
               <span className="auth-choice-description">
                 Enter the connection details for your
                 Genesys Cloud organisation.
@@ -223,6 +296,7 @@ export default function LoginPage() {
               <span className="auth-choice-title">
                 Sign in with email
               </span>
+
               <span className="auth-choice-description">
                 Access Export Manager without connecting
                 a Genesys organisation.
