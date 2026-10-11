@@ -7,6 +7,7 @@ import {
   GenesysDevIcons,
 } from "genesys-dev-icons";
 
+import { useAuth } from "../auth/useAuth";
 import ConfigRow from "../components/common/ConfigRow";
 import { useSupabaseAuth } from "../auth/useSupabaseAuth";
 import { supabase } from "../lib/supabaseClient";
@@ -19,6 +20,12 @@ import {
 } from "../lib/genesysIntegration";
 
 import type { GenesysIntegration } from "../types/genesysIntegration";
+
+import {
+  getSavedGenesysIdentity,
+  type GenesysIdentityLink,
+} from "../lib/genesysIdentity";
+
 
 type ToolingConfiguration = {
   id: string;
@@ -72,9 +79,7 @@ function createDefaultGenesysForm(): GenesysIntegrationFormData {
 
 /**
  * Redacts a Client ID for display in configuration summaries.
- *
- * Keeps the first and last four characters visible.
- * The original Client ID is not modified or overwritten.
+ * It retains the first and last four characters.
  */
 function redactClientId(
   clientId: string | null | undefined,
@@ -86,10 +91,10 @@ function redactClientId(
   }
 
   if (value.length <= 8) {
-    return " [REDACTED] ";
+    return "[REDACTED]";
   }
 
-  return `${value.slice(0, 4)} [REDACTED] ${value.slice(-4)}`;
+  return `${value.slice(0, 4)}[REDACTED]${value.slice(-4)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,6 +138,12 @@ function parseToolingConfiguration(
 }
 
 export default function SettingsPage() {
+  const {
+    startGenesysLogin,
+    status: genesysAuthStatus,
+    error: genesysAuthError,
+  } = useAuth();
+
   const {
     user: standaloneUser,
     profile: standaloneProfile,
@@ -635,6 +646,16 @@ export default function SettingsPage() {
       return;
     }
 
+    // An existing verified state may be retained only when the
+    // configuration remains unchanged. If any OAuth setting changes,
+    // the integration must be authenticated again.
+    const configurationUnchanged = Boolean(
+      integration &&
+        integration.client_id === clientId &&
+        integration.region === region &&
+        integration.redirect_uri === redirectUri,
+    );
+
     setIntegrationSaving(true);
 
     try {
@@ -644,7 +665,10 @@ export default function SettingsPage() {
           client_id: clientId,
           region,
           redirect_uri: redirectUri,
-          enabled: integration?.enabled ?? false,
+          enabled: Boolean(
+            integration?.enabled &&
+              configurationUnchanged,
+          ),
         },
       );
 
@@ -667,16 +691,66 @@ export default function SettingsPage() {
     }
   }
 
+  /**
+   * When enabling the integration, start a real Genesys OAuth
+   * flow. Do not set the database enabled flag directly.
+   *
+   * The OAuth callback page completes the verified identity link.
+   * The database enables the integration only after that succeeds.
+   *
+   * Turning the integration off remains a direct database update.
+   * It retains the verified identity link so it can be re-enabled.
+   */
   async function handleToggleIntegration(enabled: boolean) {
-    if (!standaloneUser?.id || !integration) return;
+    if (
+      !standaloneUser?.id ||
+      !integration ||
+      integrationSaving
+    ) {
+      return;
+    }
 
     setIntegrationError("");
     setIntegrationSaving(true);
 
+    if (enabled) {
+      try {
+        await startGenesysLogin(
+          {
+            clientId: integration.client_id,
+            region: integration.region,
+            redirectUri: integration.redirect_uri,
+          },
+          true,
+        );
+      } catch (error) {
+        setIntegrationError(
+          error instanceof Error
+            ? error.message
+            : "Unable to start Genesys Cloud authentication.",
+        );
+      } finally {
+        setIntegrationSaving(false);
+      }
+
+      return;
+    }
+
+    if (!enabled) {
+  const updated = await setGenesysIntegrationEnabled(
+    standaloneUser.id,
+    false,
+  );
+
+  setIntegration(updated);
+  disconnectGenesys();
+  return;
+}
+
     try {
       const updated = await setGenesysIntegrationEnabled(
         standaloneUser.id,
-        enabled,
+        false,
       );
 
       setIntegration(updated);
@@ -684,7 +758,7 @@ export default function SettingsPage() {
       setIntegrationError(
         error instanceof Error
           ? error.message
-          : "Unable to update Genesys authentication settings.",
+          : "Unable to disable Genesys Cloud authentication.",
       );
     } finally {
       setIntegrationSaving(false);
@@ -825,7 +899,9 @@ export default function SettingsPage() {
             }
             disabled={toolingSaving || toolingLoading}
           >
-            {toolingFormOpen ? "Close form" : "+ Add configuration"}
+            {toolingFormOpen
+              ? "Close form"
+              : "+ Add configuration"}
           </button>
         </div>
 
@@ -957,11 +1033,11 @@ export default function SettingsPage() {
                         }))
                       }
                       placeholder={
-                        editingToolingId && (
-                          toolingConfigurations.find(
-                            (item) => item.id === editingToolingId,
-                          )?.has_secret
-                        )
+                        editingToolingId &&
+                        toolingConfigurations.find(
+                          (item) =>
+                            item.id === editingToolingId,
+                        )?.has_secret
                           ? "Saved secret exists — enter a new one to replace it"
                           : "Enter OAuth Client Secret"
                       }
@@ -1105,7 +1181,9 @@ export default function SettingsPage() {
                                 : "status-planned"
                             }`}
                           >
-                            {item.enabled ? "Enabled" : "Disabled"}
+                            {item.enabled
+                              ? "Enabled"
+                              : "Disabled"}
                           </span>
                         </div>
 
@@ -1119,7 +1197,9 @@ export default function SettingsPage() {
                           Client ID: {redactClientId(item.client_id)}
                         </p>
 
-                        {item.description && <p>{item.description}</p>}
+                        {item.description && (
+                          <p>{item.description}</p>
+                        )}
                       </div>
                     </div>
 
@@ -1139,14 +1219,18 @@ export default function SettingsPage() {
                           aria-hidden="true"
                         />
                         <span className="settings-switch-label">
-                          {item.enabled ? "Enabled" : "Disabled"}
+                          {item.enabled
+                            ? "Enabled"
+                            : "Disabled"}
                         </span>
                       </label>
 
                       <button
                         type="button"
                         className="tooling-secondary-button"
-                        onClick={() => openEditToolingForm(item)}
+                        onClick={() =>
+                          openEditToolingForm(item)
+                        }
                         disabled={toolingSaving}
                       >
                         Edit
@@ -1191,7 +1275,9 @@ export default function SettingsPage() {
               type="button"
               className="tooling-primary-button"
               onClick={openNewIntegrationForm}
-              disabled={integrationLoading || !standaloneUser}
+              disabled={
+                integrationLoading || !standaloneUser
+              }
             >
               + Add configuration
             </button>
@@ -1205,12 +1291,17 @@ export default function SettingsPage() {
           exists.
         </div>
 
-        {integrationError && (
+        {(integrationError ||
+          (genesysAuthStatus === "Authentication failed"
+            ? genesysAuthError
+            : "")) && (
           <AlertBlock
             alertType="critical"
             title="Genesys authentication settings"
           >
-            {integrationError}
+            {integrationError ||
+              genesysAuthError ||
+              "Genesys Cloud authentication failed."}
           </AlertBlock>
         )}
 
@@ -1255,7 +1346,8 @@ export default function SettingsPage() {
                       </div>
 
                       <p>
-                        Client ID: {redactClientId(integration.client_id)}
+                        Client ID:{" "}
+                        {redactClientId(integration.client_id)}
                       </p>
                     </div>
                   </div>
@@ -1278,7 +1370,9 @@ export default function SettingsPage() {
                         aria-hidden="true"
                       />
                       <span className="settings-switch-label">
-                        {integration.enabled ? "Enabled" : "Disabled"}
+                        {integration.enabled
+                          ? "Enabled"
+                          : "Disabled"}
                       </span>
                     </label>
 

@@ -16,10 +16,12 @@ export type AuthContextValue = {
   status: string
   error: string
   isBusy: boolean
+  disconnectGenesys: () => void;
   login: () => Promise<void>
-  startGenesysLogin: (
-    config: GenesysConfig,
-  ) => Promise<void>
+startGenesysLogin: (
+  config: GenesysConfig,
+  forceOAuth?: boolean,
+) => Promise<void>
 }
 
 export const AuthContext =

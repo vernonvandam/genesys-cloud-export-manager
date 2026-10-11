@@ -12,12 +12,13 @@ import ExportHistoryPage from "./pages/ExportHistoryPage";
 import SettingsPage from "./pages/SettingsPage";
 import SupabaseCallbackPage from "./pages/SupabaseCallbackPage";
 import StandaloneOnboardingPage from "./pages/StandaloneOnboardingPage";
-
+import GenesysOAuthCallbackPage from "./pages/GenesysOAuthCallbackPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<LoginPage />} />
+      
       <Route path="/login" element={<LoginPage />} />
 
       <Route path="/login/genesys" element={<GenesysSetupPage />} />
@@ -27,6 +28,11 @@ export default function App() {
       <Route path="/auth/callback" element={<SupabaseCallbackPage />} />
 
       <Route path="/onboarding" element={<StandaloneOnboardingPage />} />
+
+      <Route
+        path="/auth/genesys/callback"
+        element={<GenesysOAuthCallbackPage />}
+      />
 
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<AppLayout />}>

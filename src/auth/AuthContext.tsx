@@ -84,14 +84,14 @@ function getInitialAuthState(): {
 
   const urlConfig = getUrlConfig();
 
-  // A complete configuration means integrated launch.
-  // Save it for the subsequent OAuth redirect callback.
+  // A complete launch configuration means an integrated launch.
+  // Save it so the application can recover it after OAuth redirects.
   if (isCompleteConfig(urlConfig)) {
     try {
       saveAuthConfig(urlConfig, "integrated");
     } catch {
-      // The login can start, but callback recovery
-      // requires session storage to be available.
+      // The login can start, but callback recovery requires
+      // session storage to be available.
     }
 
     return {
@@ -124,8 +124,8 @@ function getInitialAuthState(): {
     }
   }
 
-  // Preserve partial URL values so the standalone
-  // connection form can prefill any supplied fields.
+  // Preserve partial URL values so the standalone connection
+  // form can prefill any supplied fields.
   return {
     config: {
       clientId: urlConfig.clientId || "",
@@ -164,8 +164,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authInProgress = useRef(false);
   const callbackHandled = useRef(false);
 
+  const disconnectGenesys = useCallback(() => {
+  const apiClient = platformClient.ApiClient.instance;
+
+  apiClient.clearAccessToken();
+
+  setUser(null);
+  setOrganization(null);
+  setError("");
+  setStatus("Not authenticated");
+}, []);
+
+
+  /**
+   * Authenticate using the supplied Genesys OAuth configuration.
+   *
+   * forceOAuth is used when the Settings switch is enabled.
+   * It instructs the SDK to start an OAuth authorisation flow
+   * instead of first attempting to reuse a previously available
+   * token.
+   */
   const authenticateWithConfig = useCallback(
-    async (selectedConfig: GenesysConfig) => {
+    async (selectedConfig: GenesysConfig, forceOAuth = false) => {
       if (authInProgress.current) return;
 
       setError("");
@@ -184,10 +204,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         apiClient.setEnvironment(selectedConfig.region);
 
-        // Normal PKCE redirect flow. No popup options.
+        // The SDK uses the registered redirect URI for the
+        // PKCE authorisation flow. forceOAuth skips the initial
+        // existing-token test when the user explicitly enables
+        // the integration from Settings.
+        const pkceOptions = forceOAuth
+          ? ({
+              skipTest: true,
+            } as unknown as Parameters<typeof apiClient.loginPKCEGrant>[2])
+          : undefined;
+
         await apiClient.loginPKCEGrant(
           selectedConfig.clientId,
           selectedConfig.redirectUri,
+          pkceOptions,
         );
 
         setStatus("Loading user details...");
@@ -200,6 +230,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const currentOrganization =
           (await organizationApi.getOrganizationsMe()) as GenesysOrganization;
+
+        if (!currentUser?.id) {
+          throw new Error(
+            "Login succeeded, but the Genesys user could not be identified.",
+          );
+        }
 
         if (!currentOrganization?.id) {
           throw new Error(
@@ -233,9 +269,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authenticateWithConfig(config);
   }, [authenticateWithConfig, config]);
 
-  // Used by the standalone Genesys onboarding form.
+  /**
+   * Start a Genesys login using a selected configuration.
+   *
+   * The optional forceOAuth parameter is used by Settings to
+   * initiate a new authorisation flow when the integration switch
+   * is turned on. Existing callers can continue to pass one
+   * argument without changing their behaviour.
+   */
   const startGenesysLogin = useCallback(
-    async (selectedConfig: GenesysConfig) => {
+    async (selectedConfig: GenesysConfig, forceOAuth = false) => {
       setError("");
 
       if (!isCompleteConfig(selectedConfig)) {
@@ -257,7 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setConfig(selectedConfig);
       setMode("standalone");
 
-      await authenticateWithConfig(selectedConfig);
+      await authenticateWithConfig(selectedConfig, forceOAuth);
     },
     [authenticateWithConfig],
   );
@@ -286,8 +329,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Process an OAuth callback, but do not auto-start a
-    // fresh login just because launch parameters are present.
+    // Process an OAuth callback, but do not automatically start
+    // a fresh login just because launch parameters are present.
     if (params.has("code") && !callbackHandled.current) {
       callbackHandled.current = true;
       void login();
@@ -310,6 +353,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isBusy,
         login,
         startGenesysLogin,
+        disconnectGenesys,
       }}
     >
       {children}
