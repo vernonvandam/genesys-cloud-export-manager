@@ -19,6 +19,19 @@ permissions to load the signed-in user's and organization details.
 Standalone email sign-in remains separate. Genesys identity linking to a local
 Export Manager account is currently disabled.
 
+## User documentation
+
+The in-app Documentation page displays the guides in `docs/`. Update those
+Markdown files when user-facing workflows or behavior change.
+
+## Feedback and issue reports
+
+Use **Report a problem** in the workspace sidebar to open this repository's
+GitHub issue form, where you can report a fault or request a feature. Submitting
+requires a GitHub account with permission to create issues. Reports are not
+sent directly from the app, so no GitHub credentials or tokens are stored in
+the browser.
+
 ## Supabase backend
 
 The organization-scoped backend is defined in `supabase/migrations` and

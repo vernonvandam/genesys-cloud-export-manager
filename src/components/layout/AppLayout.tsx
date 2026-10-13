@@ -9,6 +9,9 @@ import {
 import { useAuth } from "../../auth/useAuth";
 import { useSupabaseAuth } from "../../auth/useSupabaseAuth";
 
+const githubIssuesUrl =
+  "https://github.com/vernonvandam/genesys-cloud-export-manager/issues/new";
+
 const navigationItems = [
   {
     to: "/app",
@@ -135,7 +138,11 @@ export default function AppLayout() {
   const pageTitle =
     navigationItems.find((item) => item.to === location.pathname)
       ?.label ||
-    (location.pathname === "/app/admin" ? "Admin" : "Overview");
+    (location.pathname === "/app/admin"
+      ? "Admin"
+      : location.pathname === "/app/documentation"
+        ? "Documentation"
+        : "Overview");
 
   const initials = getInitials(displayName);
 
@@ -245,6 +252,30 @@ export default function AppLayout() {
               is not connected yet.
             </span>
           </div>
+
+          <NavLink
+            to="/app/documentation"
+            className={({ isActive }) =>
+              `sidebar-support-link${isActive ? " is-active" : ""}`
+            }
+            aria-label="Documentation"
+            title="Documentation"
+          >
+            <GenesysDevIcon icon={GenesysDevIcons.AppDocumentEye} />
+            <span>Documentation</span>
+          </NavLink>
+
+          <a
+            className="sidebar-support-link"
+            href={githubIssuesUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Report a problem or request a feature on GitHub"
+            title="Report a problem"
+          >
+            <GenesysDevIcon icon={GenesysDevIcons.AppInfoSolid} />
+            <span>Report a problem</span>
+          </a>
 
           <div className="sidebar-profile-menu" ref={profilePopoverRef}>
             {profileOpen && (
@@ -488,8 +519,20 @@ export default function AppLayout() {
 
         <footer className="app-footer">
           <span>Genesys Cloud Export Manager</span>
+          <span className="footer-attribution">
+            Independent project by{" "}
+            <a
+              href="https://www.linkedin.com/in/vernonvandam/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Vernon van Dam
+            </a>
+            {" · Not an official NTT product"}
+          </span>
         </footer>
       </div>
+
     </div>
   );
 }

@@ -11,6 +11,7 @@ import ResourcesPage from "./pages/ResourcesPage";
 import ExportHistoryPage from "./pages/ExportHistoryPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
+import DocumentationPage from "./pages/DocumentationPage";
 import SupabaseCallbackPage from "./pages/SupabaseCallbackPage";
 import StandaloneOnboardingPage from "./pages/StandaloneOnboardingPage";
 import GenesysOAuthCallbackPage from "./pages/GenesysOAuthCallbackPage";
@@ -44,6 +45,8 @@ export default function App() {
           <Route path="history" element={<ExportHistoryPage />} />
 
           <Route path="settings" element={<SettingsPage />} />
+
+          <Route path="documentation" element={<DocumentationPage />} />
 
           <Route path="admin" element={<AdminPage />} />
         </Route>
