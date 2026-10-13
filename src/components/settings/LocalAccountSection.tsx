@@ -9,7 +9,7 @@ import ConfigRow from "../common/ConfigRow";
 import { supabase } from "../../lib/supabaseClient";
 
 export default function LocalAccountSection() {
-  const { disconnectGenesys } = useAuth();
+  const { mode, disconnectGenesys } = useAuth();
   const { user: standaloneUser, profile: standaloneProfile, signOut } = useSupabaseAuth();
 
   const [signOutError, setSignOutError] = useState("");
@@ -58,7 +58,7 @@ export default function LocalAccountSection() {
     }
   }
 
-  if (!standaloneUser) return null;
+  if (mode === "integrated" || !standaloneUser) return null;
 
   return (
     <section className="panel settings-panel">

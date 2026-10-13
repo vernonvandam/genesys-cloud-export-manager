@@ -1,0 +1,16 @@
+project_id = "genesys-cloud-export-manager"
+
+[functions.request-access]
+verify_jwt = false
+
+[functions.genesys-auth]
+verify_jwt = false
+
+[functions.org-data]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false
+
+[functions.test-storage-account]
+verify_jwt = false

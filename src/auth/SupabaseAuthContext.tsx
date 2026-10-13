@@ -2,18 +2,41 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { supabase } from "../lib/supabaseClient";
-import { SupabaseAuthContext, type UserProfile } from "./supabase-auth-context";
+import {
+  SupabaseAuthContext,
+  type OrganizationAccess,
+  type UserProfile,
+} from "./supabase-auth-context";
 
 import type { User } from "@supabase/supabase-js";
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error !== "object" || error === null) return String(error);
+
+  const details = error as Record<string, unknown>;
+  const message =
+    typeof details.message === "string" ? details.message : "";
+  const code = typeof details.code === "string" ? details.code : "";
+  const detail =
+    typeof details.details === "string" ? details.details : "";
+  const hint = typeof details.hint === "string" ? details.hint : "";
+  const description = [message, detail && `Details: ${detail}`, hint && `Hint: ${hint}`]
+    .filter(Boolean)
+    .join(" ");
+
+  if (description) return code ? `${description} (${code})` : description;
+  return JSON.stringify(error);
 }
 
 export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [organizations, setOrganizations] = useState<OrganizationAccess[]>([]);
+  const [activeOrganizationId, setActiveOrganizationIdState] =
+    useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -54,25 +77,57 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
 
   const userId = user?.id ?? null;
 
-  const loadProfile = useCallback(async (id: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(
-        "id, display_name, company_name, onboarding_completed, created_at, updated_at",
-      )
-      .eq("id", id)
-      .maybeSingle();
+  const loadProfile = useCallback(async () => {
+    const { data, error } = await supabase.rpc("get_my_access");
 
     if (error) throw error;
-
-    return (data as UserProfile | null) ?? null;
+    if (data === null) return { profile: null, organizations: [] };
+    if (typeof data !== "object" || !("profile" in data) || !("organizations" in data)) {
+      throw new Error("Supabase returned an invalid access profile.");
+    }
+    const access = data as {
+      profile: UserProfile | null;
+      organizations: OrganizationAccess[];
+    };
+    if (
+      !access.profile ||
+      !Array.isArray(access.organizations) ||
+      !access.organizations.every(
+        (organization) =>
+          typeof organization.id === "string" &&
+          typeof organization.name === "string",
+      )
+    ) {
+      throw new Error("Supabase returned incomplete access details.");
+    }
+    return access;
   }, []);
+
+  const selectActiveOrganization = useCallback((available: OrganizationAccess[]) => {
+    const savedId = localStorage.getItem("export-manager-active-organization");
+    const selected = available.some((organization) => organization.id === savedId)
+      ? savedId
+      : available[0]?.id ?? null;
+    setActiveOrganizationIdState(selected);
+    if (selected) localStorage.setItem("export-manager-active-organization", selected);
+    else localStorage.removeItem("export-manager-active-organization");
+  }, []);
+
+  const setActiveOrganizationId = useCallback((organizationId: string) => {
+    if (!organizations.some((organization) => organization.id === organizationId)) {
+      throw new Error("You do not have access to that organization.");
+    }
+    setActiveOrganizationIdState(organizationId);
+    localStorage.setItem("export-manager-active-organization", organizationId);
+  }, [organizations]);
 
   useEffect(() => {
     let active = true;
 
     if (!userId) {
       setProfile(null);
+      setOrganizations([]);
+      setActiveOrganizationIdState(null);
       setProfileError("");
       setProfileLoading(false);
 
@@ -84,9 +139,13 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
     setProfileError("");
 
-    void loadProfile(userId)
-      .then((result) => {
-        if (active) setProfile(result);
+    void loadProfile()
+      .then((access) => {
+        if (active) {
+          setProfile(access.profile);
+          setOrganizations(access.organizations);
+          selectActiveOrganization(access.organizations);
+        }
       })
       .catch((error: unknown) => {
         if (active) {
@@ -101,7 +160,7 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [userId, loadProfile]);
+  }, [userId, loadProfile, selectActiveOrganization]);
 
   const refreshProfile = useCallback(async () => {
     if (!userId) return;
@@ -110,46 +169,17 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
     setProfileError("");
 
     try {
-      const result = await loadProfile(userId);
-      setProfile(result);
+      const access = await loadProfile();
+      setProfile(access.profile);
+      setOrganizations(access.organizations);
+      selectActiveOrganization(access.organizations);
     } catch (error) {
       setProfileError(errorMessage(error));
       throw error;
     } finally {
       setProfileLoading(false);
     }
-  }, [userId, loadProfile]);
-
-  const saveProfile = useCallback(
-    async (displayName: string, companyName: string) => {
-      if (!userId) {
-        throw new Error("You must be signed in to save your profile.");
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .upsert(
-          {
-            id: userId,
-            display_name: displayName.trim(),
-            company_name: companyName.trim() || null,
-            onboarding_completed: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" },
-        )
-        .select(
-          "id, display_name, company_name, onboarding_completed, created_at, updated_at",
-        )
-        .single();
-
-      if (error) throw error;
-
-      setProfile(data as UserProfile);
-      setProfileError("");
-    },
-    [userId],
-  );
+  }, [userId, loadProfile, selectActiveOrganization]);
 
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
@@ -158,6 +188,8 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
 
     setUser(null);
     setProfile(null);
+    setOrganizations([]);
+    setActiveOrganizationIdState(null);
     setProfileError("");
   }, []);
 
@@ -166,11 +198,13 @@ export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         profile,
+        organizations,
+        activeOrganizationId,
+        setActiveOrganizationId,
         loading,
         profileLoading,
         profileError,
         refreshProfile,
-        saveProfile,
         signOut,
       }}
     >

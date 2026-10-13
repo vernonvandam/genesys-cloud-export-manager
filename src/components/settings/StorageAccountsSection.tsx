@@ -5,6 +5,8 @@ import { AlertBlock } from "genesys-react-components";
 import { GenesysDevIcon, GenesysDevIcons } from "genesys-dev-icons";
 
 import { useSupabaseAuth } from "../../auth/useSupabaseAuth";
+import { useAuth } from "../../auth/useAuth";
+import { callOrgRpc } from "../../lib/orgData";
 import { supabase } from "../../lib/supabaseClient";
 
 type StorageProvider =
@@ -521,7 +523,25 @@ function copyTestSteps(): StorageTestStep[] {
 }
 
 export default function StorageAccountsSection() {
-  const { user: standaloneUser } = useSupabaseAuth();
+  const { user: standaloneUser, activeOrganizationId } = useSupabaseAuth();
+  const {
+    mode,
+    user: genesysUser,
+    organization,
+    accessToken,
+    config,
+  } = useAuth();
+  const organizationId =
+    mode === "integrated" ? organization?.id ?? null : activeOrganizationId;
+  const integrated = useMemo(
+    () =>
+      mode === "integrated" && accessToken
+        ? { accessToken, region: config.region }
+        : undefined,
+    [mode, accessToken, config.region],
+  );
+  const hasSession =
+    mode === "integrated" ? Boolean(genesysUser) : Boolean(standaloneUser);
 
   const [accounts, setAccounts] = useState<StorageAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -563,16 +583,16 @@ export default function StorageAccountsSection() {
    * the authenticated user's own records.
    */
   const loadTestLogs = useCallback(async () => {
-    if (!standaloneUser?.id) {
+    if (!hasSession || !organizationId) {
       setLatestTests({});
       return;
     }
 
-    const { data, error } = await supabase
-      .from("storage_account_test_logs")
-      .select("id, storage_account_id, status, finished_at")
-      .order("finished_at", { ascending: false })
-      .limit(500);
+    const { data, error } = await callOrgRpc<unknown[]>(
+      "list_storage_account_test_logs",
+      { p_organization_id: organizationId },
+      integrated,
+    );
 
     if (error) {
       setSectionError(`Unable to load storage test results: ${error.message}`);
@@ -581,27 +601,32 @@ export default function StorageAccountsSection() {
 
     const latest: Record<string, StorageTestLogSummary> = {};
 
-    for (const row of data ?? []) {
+    for (const value of data ?? []) {
+      const row = value as StorageTestLogSummary;
       if (!latest[row.storage_account_id]) {
-        latest[row.storage_account_id] = row as StorageTestLogSummary;
+        latest[row.storage_account_id] = row;
       }
     }
 
     setLatestTests(latest);
-  }, [standaloneUser?.id]);
+  }, [hasSession, organizationId, integrated]);
 
   const loadAccounts = useCallback(async () => {
     setSectionError("");
     setLoading(true);
 
     try {
-      if (!standaloneUser?.id) {
+      if (!hasSession || !organizationId) {
         setAccounts([]);
         setLatestTests({});
         return;
       }
 
-      const { data, error } = await supabase.rpc("list_storage_accounts");
+      const { data, error } = await callOrgRpc<unknown[]>(
+        "list_storage_accounts",
+        { p_organization_id: organizationId },
+        integrated,
+      );
 
       if (error) throw new Error(error.message);
 
@@ -622,7 +647,7 @@ export default function StorageAccountsSection() {
     } finally {
       setLoading(false);
     }
-  }, [standaloneUser?.id, loadTestLogs]);
+  }, [hasSession, organizationId, integrated, loadTestLogs]);
 
   useEffect(() => {
     void loadAccounts();
@@ -701,7 +726,7 @@ export default function StorageAccountsSection() {
       return "Enter a name for this storage account.";
     }
 
-    if (!standaloneUser?.id) {
+    if (!hasSession || !organizationId) {
       return (
         "Sign in to the Export Manager account before " +
         "saving storage accounts."
@@ -804,8 +829,9 @@ export default function StorageAccountsSection() {
         }
       }
 
-      const { data, error } = await supabase.rpc("save_storage_account", {
+      const { data, error } = await callOrgRpc<unknown>("save_storage_account", {
         p_id: editingId,
+        p_organization_id: organizationId,
         p_name: form.name.trim(),
         p_provider: form.provider,
         p_environment: form.environment,
@@ -817,7 +843,7 @@ export default function StorageAccountsSection() {
         p_description: form.description.trim(),
         p_settings: connectionSettings(form.provider, form.settings),
         p_credentials: credentials,
-      });
+      }, integrated);
 
       if (error) throw new Error(error.message);
 
@@ -850,13 +876,20 @@ export default function StorageAccountsSection() {
    */
   async function downloadTestReport(logId: string) {
     try {
-      const { data, error } = await supabase
-        .from("storage_account_test_logs")
-        .select("report, storage_account_name, provider, finished_at")
-        .eq("id", logId)
-        .single();
+      const { data, error } = await callOrgRpc<unknown>(
+        "get_storage_account_test_log",
+        { p_id: logId, p_organization_id: organizationId },
+        integrated,
+      );
 
       if (error) throw new Error(error.message);
+      if (
+        !isRecord(data) ||
+        !isRecord(data.report) ||
+        typeof data.storage_account_name !== "string"
+      ) {
+        throw new Error("Supabase returned an invalid storage test report.");
+      }
 
       const blob = new Blob([JSON.stringify(data.report, null, 2)], {
         type: "application/json",
@@ -913,12 +946,21 @@ export default function StorageAccountsSection() {
     setTestRunning(true);
 
     try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+      let bearerToken = accessToken;
+      if (mode !== "integrated") {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-      if (sessionError || !session?.access_token) {
+        if (sessionError || !session?.access_token) {
+          throw new Error(
+            "Your session has expired. Sign in again before testing storage.",
+          );
+        }
+        bearerToken = session.access_token;
+      }
+      if (!bearerToken) {
         throw new Error(
           "Your session has expired. Sign in again before testing storage.",
         );
@@ -942,11 +984,13 @@ export default function StorageAccountsSection() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${bearerToken}`,
             apikey: publishableKey,
           },
           body: JSON.stringify({
             storageAccountId: item.id,
+            organizationId,
+            ...(mode === "integrated" ? { region: config.region } : {}),
           }),
         },
       );
@@ -1070,8 +1114,9 @@ export default function StorageAccountsSection() {
       if (enableAfterSuccess) {
         setSaving(true);
 
-        const { data, error } = await supabase.rpc("save_storage_account", {
+        const { data, error } = await callOrgRpc<unknown>("save_storage_account", {
           p_id: item.id,
+            p_organization_id: organizationId,
           p_name: item.name,
           p_provider: item.provider,
           p_environment: item.environment,
@@ -1079,7 +1124,7 @@ export default function StorageAccountsSection() {
           p_description: item.description,
           p_settings: connectionSettings(item.provider, item.settings),
           p_credentials: {},
-        });
+        }, integrated);
 
         if (error) {
           throw new Error(
@@ -1136,8 +1181,9 @@ export default function StorageAccountsSection() {
     setSectionError("");
 
     try {
-      const { data, error } = await supabase.rpc("save_storage_account", {
+      const { data, error } = await callOrgRpc<unknown>("save_storage_account", {
         p_id: item.id,
+        p_organization_id: organizationId,
         p_name: item.name,
         p_provider: item.provider,
         p_environment: item.environment,
@@ -1145,7 +1191,7 @@ export default function StorageAccountsSection() {
         p_description: item.description,
         p_settings: connectionSettings(item.provider, item.settings),
         p_credentials: {},
-      });
+      }, integrated);
 
       if (error) throw new Error(error.message);
 
@@ -1182,9 +1228,11 @@ export default function StorageAccountsSection() {
     setSectionError("");
 
     try {
-      const { data, error } = await supabase.rpc("delete_storage_account", {
-        p_id: item.id,
-      });
+      const { data, error } = await callOrgRpc<boolean>(
+        "delete_storage_account",
+        { p_id: item.id, p_organization_id: organizationId },
+        integrated,
+      );
 
       if (error) throw new Error(error.message);
 
@@ -1331,7 +1379,8 @@ export default function StorageAccountsSection() {
 
           <p className="section-description">
             Connect to existing buckets and containers for exported files and
-            backups.
+            backups. These settings are shared with users assigned to the
+            selected Genesys Cloud organization.
           </p>
         </div>
 
@@ -1353,7 +1402,7 @@ export default function StorageAccountsSection() {
         must pass a connectivity test before they can be enabled.
       </div>
 
-      {!standaloneUser?.id && (
+      {!hasSession && (
         <AlertBlock alertType="critical" title="Sign in required">
           Sign in to your Export Manager account to load and save storage
           accounts.

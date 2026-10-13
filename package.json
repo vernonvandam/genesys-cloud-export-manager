@@ -14,7 +14,6 @@
     "buffer": "^6.0.3",
     "genesys-dev-icons": "^1.6.0",
     "genesys-react-components": "^1.2.3",
-    "purecloud-platform-client-v2": "^264.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.6",

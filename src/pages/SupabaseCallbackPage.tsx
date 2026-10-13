@@ -1,9 +1,12 @@
 import { Navigate, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { AlertBlock } from 'genesys-react-components'
 
+import { isIntegratedIdentityError } from '../auth/supabase-auth-context'
 import { useSupabaseAuth } from '../auth/useSupabaseAuth'
 
 export default function SupabaseCallbackPage() {
+  const [signOutError, setSignOutError] = useState('')
   const {
     user,
     loading,
@@ -11,7 +14,19 @@ export default function SupabaseCallbackPage() {
     profileLoading,
     profileError,
     refreshProfile,
+    signOut,
   } = useSupabaseAuth()
+
+  async function handleSignOut() {
+    setSignOutError('')
+    try {
+      await signOut()
+    } catch (error) {
+      setSignOutError(
+        error instanceof Error ? error.message : 'Unable to sign out.',
+      )
+    }
+  }
 
   if (loading || (user && profileLoading)) {
     return (
@@ -54,22 +69,37 @@ export default function SupabaseCallbackPage() {
   }
 
   if (profileError) {
+    const integratedIdentity = isIntegratedIdentityError(profileError)
+
     return (
       <div className="genesys-app genesys-app-light auth-page">
         <main className="auth-card">
           <AlertBlock
             alertType="critical"
-            title="Unable to load your profile"
+            title={
+              integratedIdentity
+                ? 'Use Genesys Cloud sign-in'
+                : 'Unable to load your profile'
+            }
           >
-            {profileError}
+            {integratedIdentity
+              ? 'This email is registered for Genesys-integrated access and cannot be used for standalone email sign-in. Sign out, then reopen Export Manager from your Genesys Cloud organization.'
+              : profileError}
           </AlertBlock>
 
+          {signOutError && (
+            <AlertBlock alertType="critical" title="Sign-out failed">
+              {signOutError}
+            </AlertBlock>
+          )}
           <button
             type="button"
             className="auth-submit"
-            onClick={() => void refreshProfile()}
+            onClick={() =>
+              void (integratedIdentity ? handleSignOut() : refreshProfile())
+            }
           >
-            Retry
+            {integratedIdentity ? 'Sign out' : 'Retry'}
           </button>
         </main>
       </div>
@@ -78,11 +108,7 @@ export default function SupabaseCallbackPage() {
 
   return (
     <Navigate
-      to={
-        profile?.onboarding_completed
-          ? '/app'
-          : '/onboarding'
-      }
+      to={profile?.approval_status === 'approved' ? '/app' : '/access-pending'}
       replace
     />
   )

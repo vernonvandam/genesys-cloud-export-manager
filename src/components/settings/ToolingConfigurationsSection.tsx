@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import { AlertBlock } from "genesys-react-components";
 import { GenesysDevIcon, GenesysDevIcons } from "genesys-dev-icons";
 
 import { useSupabaseAuth } from "../../auth/useSupabaseAuth";
-import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../auth/useAuth";
+import { callOrgRpc } from "../../lib/orgData";
 
 type ToolingConfiguration = {
   id: string;
@@ -79,7 +80,18 @@ function parseToolingConfiguration(value: unknown): ToolingConfiguration {
 }
 
 export default function ToolingConfigurationsSection() {
-  const { user: standaloneUser } = useSupabaseAuth();
+  const { user: standaloneUser, activeOrganizationId } = useSupabaseAuth();
+  const { mode, user: genesysUser, organization, accessToken, config } = useAuth();
+  const organizationId =
+    mode === "integrated" ? organization?.id ?? null : activeOrganizationId;
+  const integrated = useMemo(
+    () =>
+      mode === "integrated" && accessToken
+        ? { accessToken, region: config.region }
+        : undefined,
+    [mode, accessToken, config.region],
+  );
+  const hasSession = mode === "integrated" ? Boolean(genesysUser) : Boolean(standaloneUser);
   const [toolingConfigurations, setToolingConfigurations] = useState<ToolingConfiguration[]>([]);
   const [toolingLoading, setToolingLoading] = useState(true);
   const [toolingSaving, setToolingSaving] = useState(false);
@@ -96,14 +108,18 @@ export default function ToolingConfigurationsSection() {
       setToolingConfigurations([]);
       setToolingError("");
 
-      if (!standaloneUser?.id) {
+      if (!hasSession || !organizationId) {
         setToolingLoading(false);
         return;
       }
 
       setToolingLoading(true);
       try {
-        const { data, error } = await supabase.rpc("list_tooling_configurations");
+        const { data, error } = await callOrgRpc<unknown[]>(
+          "list_tooling_configurations",
+          { p_organization_id: organizationId },
+          integrated,
+        );
         if (error) throw new Error(error.message);
         if (!Array.isArray(data)) {
           throw new Error("Supabase returned an unexpected tooling configuration list.");
@@ -126,7 +142,7 @@ export default function ToolingConfigurationsSection() {
     return () => {
       active = false;
     };
-  }, [standaloneUser?.id]);
+  }, [hasSession, organizationId, integrated]);
 
   function openNewToolingForm() {
     setEditingToolingId(null);
@@ -166,7 +182,7 @@ export default function ToolingConfigurationsSection() {
     setToolingFormError("");
     setToolingError("");
 
-    if (!standaloneUser?.id) {
+    if (!hasSession || !organizationId) {
       setToolingFormError("You must be signed in to save a tooling configuration.");
       return;
     }
@@ -209,8 +225,9 @@ export default function ToolingConfigurationsSection() {
 
     setToolingSaving(true);
     try {
-      const { data, error } = await supabase.rpc("save_tooling_configuration", {
+      const { data, error } = await callOrgRpc<unknown>("save_tooling_configuration", {
         p_id: editingToolingId,
+        p_organization_id: organizationId,
         p_name: name,
         p_environment: toolingFormData.environment,
         p_endpoint: endpoint,
@@ -220,7 +237,7 @@ export default function ToolingConfigurationsSection() {
         p_client_id: clientId,
         // Supabase stores this server-side in Vault.
         p_client_secret: clientSecret,
-      });
+      }, integrated);
       if (error) throw new Error(error.message);
 
       const saved = parseToolingConfiguration(data);
@@ -243,8 +260,9 @@ export default function ToolingConfigurationsSection() {
     setToolingError("");
     setToolingSaving(true);
     try {
-      const { data, error } = await supabase.rpc("save_tooling_configuration", {
+      const { data, error } = await callOrgRpc<unknown>("save_tooling_configuration", {
         p_id: item.id,
+        p_organization_id: organizationId,
         p_name: item.name,
         p_environment: item.environment,
         p_endpoint: item.endpoint,
@@ -254,7 +272,7 @@ export default function ToolingConfigurationsSection() {
         p_client_id: item.client_id,
         // An empty secret means retain the saved Vault secret.
         p_client_secret: "",
-      });
+      }, integrated);
       if (error) throw new Error(error.message);
       const updated = parseToolingConfiguration(data);
       setToolingConfigurations((current) =>
@@ -278,7 +296,11 @@ export default function ToolingConfigurationsSection() {
     setToolingError("");
     setToolingSaving(true);
     try {
-      const { data, error } = await supabase.rpc("delete_tooling_configuration", { p_id: item.id });
+      const { data, error } = await callOrgRpc<boolean>(
+        "delete_tooling_configuration",
+        { p_id: item.id, p_organization_id: organizationId },
+        integrated,
+      );
       if (error) throw new Error(error.message);
       if (data !== true) {
         throw new Error("The configuration was not found or was already removed.");
@@ -300,7 +322,8 @@ export default function ToolingConfigurationsSection() {
         <div>
           <h2 className="section-title">Tooling configurations</h2>
           <p className="section-description">
-            Manage named configuration profiles for export services and automation connections.
+            Manage configuration profiles shared with users assigned to the
+            selected Genesys Cloud organization.
           </p>
         </div>
         <button
@@ -322,7 +345,7 @@ export default function ToolingConfigurationsSection() {
 
       {toolingLoading ? (
         <p className="auth-description">Loading tooling configurations...</p>
-      ) : !standaloneUser ? (
+      ) : !hasSession ? (
         <AlertBlock alertType="info" title="Export Manager account required">
           Sign in to manage your tooling configurations.
         </AlertBlock>

@@ -3,8 +3,11 @@ import {
   Outlet,
   useLocation,
 } from 'react-router-dom'
+import { useState } from 'react'
+import { AlertBlock } from 'genesys-react-components'
 
 import { useAuth } from '../../auth/useAuth'
+import { isIntegratedIdentityError } from '../../auth/supabase-auth-context'
 import { useSupabaseAuth } from '../../auth/useSupabaseAuth'
 
 function hasCompleteLaunchConfig(search: string) {
@@ -48,6 +51,7 @@ function LoadingScreen({
 }
 
 export default function RequireAuth() {
+  const [signOutError, setSignOutError] = useState('')
   const {
     user: genesysUser,
     isBusy: genesysBusy,
@@ -58,10 +62,12 @@ export default function RequireAuth() {
   const {
     user: standaloneUser,
     profile,
+    organizations,
     loading: standaloneLoading,
     profileLoading,
     profileError,
     refreshProfile,
+    signOut,
   } = useSupabaseAuth()
 
   const location = useLocation()
@@ -94,35 +100,78 @@ export default function RequireAuth() {
     }
 
     if (profileError) {
+      const integratedIdentity = isIntegratedIdentityError(profileError)
+
+      async function handleSignOut() {
+        setSignOutError('')
+        try {
+          await signOut()
+        } catch (error) {
+          setSignOutError(
+            error instanceof Error ? error.message : 'Unable to sign out.',
+          )
+        }
+      }
+
       return (
         <div className="genesys-app genesys-app-light auth-page">
           <main className="auth-card">
             <h1 className="auth-title">
-              Unable to load your profile
+              {integratedIdentity
+                ? 'Use Genesys Cloud sign-in'
+                : 'Unable to load your profile'}
             </h1>
 
             <p className="auth-description">
-              Your email session is active, but Export
-              Manager could not retrieve your profile.
+              {integratedIdentity
+                ? 'This email is registered for Genesys-integrated access and cannot be used for standalone email sign-in. Sign out, then reopen Export Manager from your Genesys Cloud organization.'
+                : 'Your email session is active, but Export Manager could not retrieve your profile.'}
             </p>
 
-            <p>{profileError}</p>
+            {!integratedIdentity && <p>{profileError}</p>}
+            {signOutError && (
+              <AlertBlock alertType="critical" title="Sign-out failed">
+                {signOutError}
+              </AlertBlock>
+            )}
 
-            <button
-              className="auth-submit"
-              type="button"
-              onClick={() => void refreshProfile()}
-            >
-              Retry
-            </button>
+            {integratedIdentity ? (
+              <button
+                className="auth-submit"
+                type="button"
+                onClick={() => void handleSignOut()}
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                className="auth-submit"
+                type="button"
+                onClick={() => void refreshProfile()}
+              >
+                Retry
+              </button>
+            )}
           </main>
         </div>
       )
     }
 
-    if (!profile?.onboarding_completed) {
+    if (profile?.approval_status !== "approved") {
+      return <Navigate to="/access-pending" replace />;
+    }
+
+    if (organizations.length === 0) {
       return (
-        <Navigate to="/onboarding" replace />
+        <div className="genesys-app genesys-app-light auth-page">
+          <main className="auth-card">
+            <h1 className="auth-title">No organization access</h1>
+            <p className="auth-description">
+              Your account is approved, but no organization is assigned. Ask an
+              administrator to assign an organization before continuing.
+            </p>
+          </main>
+        </div>
       )
     }
 
