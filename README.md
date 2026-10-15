@@ -1,86 +1,117 @@
-# React + TypeScript + Vite
+# Genesys Cloud Export Manager
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A Vite, React and TypeScript application for managing organization-scoped configuration and access for Genesys Cloud export workflows.
 
-## Genesys Cloud sign-in
+## Current release scope
 
-Integrated sign-in uses the OAuth 2.0 Authorization Code flow with PKCE (S256)
-directly in the browser; it does not use the Genesys platform SDK. Launch the
-app with `clientId`, `region`, and `redirectURI` URL parameters (the app also
-accepts `redirectUri` and the `gc_`-prefixed Genesys launch parameter names).
-The redirect URI must be registered on a public Genesys OAuth client and point
-to this app's origin. Use HTTPS outside localhost.
+The application includes Genesys Cloud integrated sign-in, standalone email sign-in, organization-scoped configuration, storage-account connection testing, and administration features.
 
-The app keeps the PKCE verifier and state in session storage only for the OAuth
-redirect round trip, validates the returned state, and keeps the access token
-in memory. The OAuth client needs `users:readonly` and `organizations:readonly`
-permissions to load the signed-in user's and organization details.
+**Export execution is not yet fully implemented.** The Overview, Export History and Resources screens still contain sample data or placeholders. Do not represent those areas as live export functionality until their backend integration has been implemented and tested.
 
-Standalone email sign-in remains separate. Genesys identity linking to a local
-Export Manager account is currently disabled.
+## Prerequisites
 
-## User documentation
+- Node.js and npm
+- A configured Supabase project for the required backend features
+- A Genesys Cloud OAuth client for integrated sign-in
+- A Cloudflare Pages project for hosting the frontend
 
-The in-app Documentation page displays the guides in `docs/`. Update those
-Markdown files when user-facing workflows or behavior change.
+## Local development
 
-## Feedback and issue reports
+Install dependencies:
 
-Use **Report a problem** in the workspace sidebar to open this repository's
-GitHub issue form, where you can report a fault or request a feature. Submitting
-requires a GitHub account with permission to create issues. Reports are not
-sent directly from the app, so no GitHub credentials or tokens are stored in
-the browser.
+```powershell
+npm ci
+```
+
+Create your local environment file:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Edit `.env.local` and supply the values for your Supabase project.
+
+Start the development server:
+
+```powershell
+npm run dev
+```
+
+## Environment configuration
+
+The frontend uses the following Vite environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key, or the project's legacy anon key |
+
+Vite variables are included in the built frontend. Never put a Supabase service-role key, database password, or other server-side secret in a `VITE_` variable.
+
+Configure server-side secrets in Supabase, not in the frontend environment.
+
+## Build and quality checks
+
+Run these checks before committing release changes:
+
+```powershell
+npm run lint
+npm run build
+```
+
+To inspect the production build locally:
+
+```powershell
+npm run preview
+```
+
+The production build is written to `dist/`.
+
+## Genesys Cloud integrated sign-in
+
+Integrated sign-in uses the OAuth 2.0 Authorization Code flow with PKCE (S256) directly in the browser.
+
+The application accepts the Genesys launch parameters `clientId`, `region` and `redirectURI`, along with supported alternative parameter names. The redirect URI must match a URI registered on the Genesys OAuth client. Use HTTPS outside localhost.
+
+The application stores the PKCE verifier and state in session storage for the redirect round trip and keeps the access token in memory. The OAuth client needs the `users:readonly` and `organizations:readonly` permissions for identity verification.
+
+Integrated Genesys identity is separate from standalone Supabase email authentication.
 
 ## Supabase backend
 
-The organization-scoped backend is defined in `supabase/migrations` and
-`supabase/functions`. The baseline migration is for a **fresh database**; it is
-not an incremental migration for the previous schema. It creates:
+Database migrations are stored in `supabase/migrations/`. Edge Functions are stored in `supabase/functions/`.
 
-- approved local accounts and pending standalone access requests;
-- organizations and local-user memberships (a global administrator is promoted
-  manually and can select any organization);
-- verified Genesys integrated-user records, stored with their organization and
-  without creating a Supabase Auth account;
-- organization-scoped Tooling and Storage configuration RPCs, with credentials
-  held in Supabase Vault;
-- RLS policies and server-verified Genesys Edge Function access.
+The current baseline migration is intended for a **fresh database**. It is not an incremental migration for the previous schema.
 
-Integrated sign-in remains available only when Genesys launch parameters are
-present. The `genesys-auth` function validates the Genesys access token against
-the region's `/users/me` and `/organizations/me` APIs before recording the
-identity. Subsequent integrated configuration calls repeat that validation and
-derive the organization from the token; request-supplied organization IDs are
-not used for authorization.
+### Database deployment safeguards
 
-Approved local global administrators have an Admin page for organization
-directory management, standalone access requests, and local-user management.
-Organization IDs are immutable after creation, and an organization cannot be
-removed while it has memberships, integrated users, pending requests, or
-configuration records. Local-user administration includes approval status,
-profile details, organization assignments, and account deletion; global
-administrator accounts are protected from deletion in the app.
+Before applying migrations to any remote project:
 
-### Deployment
+1. Confirm the exact Supabase project and environment.
+2. Back up any data that must be retained.
+3. Inspect the remote migration history and compare the remote schema with the repository migrations.
+4. Test the migrations against a separate staging database.
+5. Review the pending migration set using `supabase db push --dry-run`.
+6. Apply migrations only after the target schema, migration history, and proposed changes have been reconciled and approved.
 
-Install the Supabase CLI, back up any project data that must be retained, and
-link this repository to the intended Supabase project:
+Do not blindly run `supabase db push` against an existing project. Never perform a destructive database reset on a shared or production database as part of routine deployment.
+
+### Staging deployment workflow
+
+After confirming the target is a disposable or correctly prepared staging project:
 
 ```powershell
 supabase login
-supabase link --project-ref <project-ref>
+supabase link --project-ref <staging-project-ref>
+supabase migration list
+supabase db push --dry-run
 ```
 
-The initial migration assumes the target database is empty. If using the
-existing project as previously discussed, first confirm the selected project
-and its backups, then perform the agreed destructive reset in Supabase. Do not
-run the baseline migration against the old populated schema.
+Review the dry-run output before deciding whether to apply the migrations. Do not proceed if unexpected migrations are pending or the remote schema is not compatible with the repository baseline.
 
-After the database is fresh and linked:
+Deploy the Edge Functions after the database and required server-side configuration have been validated:
 
 ```powershell
-supabase db push
 supabase functions deploy request-access
 supabase functions deploy genesys-auth
 supabase functions deploy org-data
@@ -88,76 +119,31 @@ supabase functions deploy delete-account
 supabase functions deploy test-storage-account
 ```
 
-The Supabase project provides the Edge Function `SUPABASE_URL`,
-`SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` values. Keep service-role
-keys server-side; never put them in Vite variables or the browser. Genesys
-OAuth needs `users:readonly` and `organizations:readonly` scopes for identity
-verification.
+These commands are examples for a validated staging deployment, not approval to run against production.
 
-After the first standalone user has verified their email, promote the intended
-first administrator manually in the Supabase SQL editor:
+### Edge Function authentication
 
-```sql
-update public.profiles
-set role = 'global_admin', approval_status = 'approved', updated_at = now()
-where id = (
-  select id from auth.users
-  where lower(email) = lower('<admin-email>')
-);
-```
+Several Edge Functions have Supabase gateway JWT verification disabled and perform their own authentication checks. This is security-sensitive and intentional in the current architecture, which supports both Genesys bearer tokens and Supabase-authenticated users.
 
-Standalone email sign-in does not create accounts. New users submit a request
-with their home Genesys organization ID; they can verify their email, but RLS
-and the workspace route keep them out until an administrator approves the
-request. Administrators can approve/reject requests and assign additional
-organizations from Settings.
+Do not change the `verify_jwt` settings without reviewing the individual function's authentication and authorization flow. Test unauthenticated requests, invalid credentials, cross-organization access, and privileged operations before production release.
 
-The reset/deploy steps above have **not** been run against any live Supabase
-project.
+Supabase service-role credentials must remain server-side.
 
-Currently, two official plugins are available:
+## Cloudflare Pages
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The frontend production build uses:
 
-## Expanding the ESLint configuration
+- **Build command:** `npm run build`
+- **Build output directory:** `dist`
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the appropriate Cloudflare Pages environment. Use separate values for preview/staging and production as applicable.
 
-- Configure the top-level `parserOptions` property like this:
+React Router deep links must also be tested on the deployed site, including refreshing a nested route directly.
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+## User documentation
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+The in-app Documentation page displays the Markdown guides in `docs/`. Update those files when user-facing workflows or application behaviour change.
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+## Feedback and issue reports
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+Use **Report a problem** in the workspace sidebar to open the repository's GitHub issue form. Submitting an issue requires a GitHub account with the required repository permissions.

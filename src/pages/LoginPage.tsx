@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../auth/useAuth'
 import { useSupabaseAuth } from '../auth/useSupabaseAuth'
 import { supabase } from '../lib/supabaseClient'
+import TurnstileChallenge from '../components/TurnstileChallenge'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -32,6 +33,7 @@ export default function LoginPage() {
     loading: standaloneLoading,
     profileLoading: standaloneProfileLoading,
   } = useSupabaseAuth()
+
   const [requestAccessOpen, setRequestAccessOpen] = useState(false)
   const [requestNotice, setRequestNotice] = useState('')
   const [requestBusy, setRequestBusy] = useState(false)
@@ -39,6 +41,8 @@ export default function LoginPage() {
   const [requestCodeSent, setRequestCodeSent] = useState(false)
   const [requestEmail, setRequestEmail] = useState('')
   const [requestCode, setRequestCode] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileResetTrigger, setTurnstileResetTrigger] = useState(0)
 
   const params = new URLSearchParams(
     window.location.search,
@@ -228,10 +232,22 @@ export default function LoginPage() {
     )
   }
 
-  async function handleRequestAccessSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleRequestAccessSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault()
     setRequestNotice('')
     setRequestError('')
+
+    // The backend performs its own verification. This check prevents
+    // a request from being submitted before the widget provides a token.
+    if (!turnstileToken) {
+      setRequestError(
+        'Complete the security check before submitting your request.',
+      )
+      return
+    }
+
     setRequestBusy(true)
 
     const form = new FormData(event.currentTarget)
@@ -254,21 +270,26 @@ export default function LoginPage() {
             email,
             organization_id: organizationId,
             message,
+            turnstile_token: turnstileToken,
           }),
         },
       )
+
       const requestResult: unknown = await requestResponse.json()
+
       if (!requestResponse.ok) {
-        const message =
+        const responseMessage =
           typeof requestResult === 'object' &&
           requestResult !== null &&
           'error' in requestResult &&
           typeof requestResult.error === 'string'
             ? requestResult.error
             : 'Unable to submit your access request.'
-        throw new Error(message)
+
+        throw new Error(responseMessage)
       }
 
+      // Preserve the existing standalone email-verification flow.
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -280,13 +301,14 @@ export default function LoginPage() {
           data: { display_name: displayName },
         },
       })
+
       if (signInError) throw signInError
 
       setRequestEmail(email)
       setRequestCode('')
       setRequestCodeSent(true)
       setRequestNotice(
-        'Your request has been received. Enter the one-time code sent to your email to verify your address. Workspace access will remain unavailable until an administrator approves your request.',
+        'Your request has been received. Enter the one-time code sent to your email to verify your address. Workspace access will remain unavailable until an administrator approves the request.',
       )
     } catch (error) {
       setRequestError(
@@ -295,11 +317,17 @@ export default function LoginPage() {
           : 'Unable to submit your access request.',
       )
     } finally {
+      // Turnstile tokens are single-use. Reset after every attempt,
+      // including failures, so the user must obtain a fresh token.
       setRequestBusy(false)
+      setTurnstileToken('')
+      setTurnstileResetTrigger((current) => current + 1)
     }
   }
 
-  async function handleRequestCodeSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleRequestCodeSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault()
     setRequestError('')
     setRequestBusy(true)
@@ -310,7 +338,9 @@ export default function LoginPage() {
         token: requestCode.trim(),
         type: 'email',
       })
+
       if (verifyError) throw verifyError
+
       navigate('/auth/callback', { replace: true })
     } catch (error) {
       setRequestError(
@@ -338,7 +368,9 @@ export default function LoginPage() {
           ).toString(),
         },
       })
+
       if (signInError) throw signInError
+
       setRequestNotice(
         'A new one-time code has been sent. Use the latest code from your email.',
       )
@@ -361,8 +393,12 @@ export default function LoginPage() {
           <span className="marketing-brand-icon">
             <GenesysDevIcon icon={GenesysDevIcons.AppShieldCheck} />
           </span>
-          <span>Genesys Cloud <strong>Export Manager</strong></span>
+
+          <span>
+            Genesys Cloud <strong>Export Manager</strong>
+          </span>
         </Link>
+
         <Link to="/login/email" className="marketing-header-link">
           Sign in
         </Link>
@@ -372,9 +408,11 @@ export default function LoginPage() {
         <section className="marketing-hero">
           <div className="marketing-copy">
             <p className="eyebrow">CONFIGURATION MANAGEMENT</p>
+
             <h1 className="marketing-title">
               Your Genesys Cloud configuration, <span>in view.</span>
             </h1>
+
             <p className="marketing-description">
               Explore a clearer way to organise configuration exports,
               review activity, and prepare backups for your Genesys Cloud
@@ -388,23 +426,32 @@ export default function LoginPage() {
             )}
 
             <div className="marketing-actions">
-              <Link to="/login/email" className="marketing-primary-button">
+              <Link
+                to="/login/email"
+                className="marketing-primary-button"
+              >
                 Sign in with email
                 <span aria-hidden="true">→</span>
               </Link>
+
               <button
                 type="button"
                 className="marketing-secondary-button"
                 onClick={() => {
                   setRequestNotice('')
+                  setRequestError('')
+                  setTurnstileToken('')
                   setRequestAccessOpen((open) => !open)
                 }}
                 aria-expanded={requestAccessOpen}
                 aria-controls="request-access-form"
               >
-                {requestAccessOpen ? 'Close request form' : 'Request access'}
+                {requestAccessOpen
+                  ? 'Close request form'
+                  : 'Request access'}
               </button>
             </div>
+
             <p className="marketing-login-note">
               Already onboarded? Sign in with the email address associated
               with your account.
@@ -422,17 +469,25 @@ export default function LoginPage() {
               >
                 <div>
                   <p className="eyebrow">GET STARTED</p>
-                  <h2>{requestCodeSent ? 'Verify your email' : 'Request access'}</h2>
+
+                  <h2>
+                    {requestCodeSent
+                      ? 'Verify your email'
+                      : 'Request access'}
+                  </h2>
+
                   <p>
                     {requestCodeSent
                       ? `Enter the one-time code sent to ${requestEmail}.`
                       : 'Submit your details and your Genesys Cloud home organization ID.'}
                   </p>
                 </div>
+
                 {requestCodeSent ? (
                   <>
                     <label className="auth-field">
                       <span>One-time code</span>
+
                       <input
                         className="auth-input"
                         name="code"
@@ -442,11 +497,14 @@ export default function LoginPage() {
                         pattern="[0-9]*"
                         maxLength={8}
                         value={requestCode}
-                        onChange={(event) => setRequestCode(event.target.value)}
+                        onChange={(event) =>
+                          setRequestCode(event.target.value)
+                        }
                         placeholder="Enter the code from your email"
                         required
                       />
                     </label>
+
                     <button
                       type="submit"
                       className="marketing-primary-button"
@@ -455,6 +513,7 @@ export default function LoginPage() {
                       {requestBusy ? 'Verifying...' : 'Verify email'}
                       <span aria-hidden="true">→</span>
                     </button>
+
                     <button
                       type="button"
                       className="marketing-secondary-button"
@@ -468,53 +527,74 @@ export default function LoginPage() {
                   <>
                     <label className="auth-field">
                       <span>Your name</span>
+
                       <input
                         className="auth-input"
                         name="name"
                         autoComplete="name"
                         placeholder="Full name"
+                        maxLength={120}
                         required
                       />
                     </label>
+
                     <label className="auth-field">
                       <span>Work email</span>
+
                       <input
                         className="auth-input"
                         name="email"
                         type="email"
                         autoComplete="email"
                         placeholder="you@company.com"
+                        maxLength={320}
                         required
                       />
                     </label>
+
                     <label className="auth-field">
                       <span>Genesys Cloud organization ID</span>
+
                       <input
                         className="auth-input"
                         name="organization_id"
                         placeholder="Genesys Cloud organization ID"
+                        maxLength={128}
                         required
                       />
                     </label>
+
                     <label className="auth-field">
-                      <span>Anything we should know? <small>(optional)</small></span>
+                      <span>
+                        Anything we should know? <small>(optional)</small>
+                      </span>
+
                       <textarea
                         className="auth-input request-access-message"
                         name="message"
                         rows={3}
+                        maxLength={2000}
                         placeholder="Tell us briefly how you plan to use Export Manager"
                       />
                     </label>
+
+                    <TurnstileChallenge
+                      onToken={setTurnstileToken}
+                      onError={setRequestError}
+                      resetTrigger={turnstileResetTrigger}
+                    />
+
                     <button
                       type="submit"
                       className="marketing-primary-button"
-                      disabled={requestBusy}
+                      disabled={requestBusy || !turnstileToken}
                     >
                       {requestBusy ? 'Submitting...' : 'Submit request'}
                       <span aria-hidden="true">→</span>
                     </button>
                   </>
                 )}
+
                 {requestError && (
                   <AlertBlock
                     alertType="critical"
@@ -527,10 +607,15 @@ export default function LoginPage() {
                     {requestError}
                   </AlertBlock>
                 )}
+
                 {requestNotice && (
                   <AlertBlock
                     alertType="success"
-                    title={requestCodeSent ? 'Check your email' : 'Request submitted'}
+                    title={
+                      requestCodeSent
+                        ? 'Check your email'
+                        : 'Request submitted'
+                    }
                   >
                     {requestNotice}
                   </AlertBlock>
@@ -540,69 +625,208 @@ export default function LoginPage() {
           </div>
 
           <div className="marketing-preview-wrap">
-            <div className="marketing-preview-glow" aria-hidden="true" />
+            <div
+              className="marketing-preview-glow"
+              aria-hidden="true"
+            />
+
             <div
               className="marketing-preview"
               role="img"
               aria-label="Illustrative preview of the Export Manager overview page"
             >
               <div className="preview-window-bar">
-                <span /><span /><span />
+                <span />
+                <span />
+                <span />
                 <div>Genesys Cloud Export Manager</div>
               </div>
+
               <div className="preview-app">
                 <aside className="preview-sidebar">
                   <div className="preview-sidebar-brand">
-                    <span><GenesysDevIcon icon={GenesysDevIcons.AppShieldCheck} /></span>
-                    <div><b>Genesys Cloud</b><small>Export Manager</small></div>
+                    <span>
+                      <GenesysDevIcon
+                        icon={GenesysDevIcons.AppShieldCheck}
+                      />
+                    </span>
+
+                    <div>
+                      <b>Genesys Cloud</b>
+                      <small>Export Manager</small>
+                    </div>
                   </div>
-                  <div className="preview-org"><i /> Connected to Example Org</div>
-                  <small className="preview-nav-label">WORKSPACE</small>
-                  <div className="preview-nav-item preview-nav-active">▦ <span>Overview</span></div>
-                  <div className="preview-nav-item">◇ <span>Resources</span></div>
-                  <div className="preview-nav-item">▤ <span>Export history</span></div>
-                  <div className="preview-nav-item">⚙ <span>Settings</span></div>
-                  <div className="preview-sidebar-user"><i>JD</i><span>Jordan Davis<small>Export Manager</small></span></div>
+
+                  <div className="preview-org">
+                    <i /> Connected to Example Org
+                  </div>
+
+                  <small className="preview-nav-label">
+                    WORKSPACE
+                  </small>
+
+                  <div className="preview-nav-item preview-nav-active">
+                    ▦ <span>Overview</span>
+                  </div>
+
+                  <div className="preview-nav-item">
+                    ◇ <span>Resources</span>
+                  </div>
+
+                  <div className="preview-nav-item">
+                    ▤ <span>Export history</span>
+                  </div>
+
+                  <div className="preview-nav-item">
+                    ⚙ <span>Settings</span>
+                  </div>
+
+                  <div className="preview-sidebar-user">
+                    <i>JD</i>
+                    <span>
+                      Jordan Davis
+                      <small>Export Manager</small>
+                    </span>
+                  </div>
                 </aside>
+
                 <div className="preview-content">
                   <div className="preview-topbar">
-                    <div><small>WORKSPACE / OVERVIEW</small><b>Your export workspace</b></div>
-                    <span><i /> Connected</span>
+                    <div>
+                      <small>WORKSPACE / OVERVIEW</small>
+                      <b>Your export workspace</b>
+                    </div>
+
+                    <span>
+                      <i /> Connected
+                    </span>
                   </div>
+
                   <div className="preview-workspace">
                     <div className="preview-welcome">
                       <small>WELCOME BACK</small>
                       <b>Hello, Jordan</b>
-                      <span>Review activity and manage your Genesys Cloud configuration.</span>
+                      <span>
+                        Review activity and manage your Genesys Cloud
+                        configuration.
+                      </span>
                       <em>＋ Start a new export</em>
                     </div>
-                    <div className="preview-connection"><i>✓</i><span><b>Connected to Example Org</b><small>Authenticated as jordan.davis@example.com</small></span><small>mypurecloud.com</small></div>
+
+                    <div className="preview-connection">
+                      <i>✓</i>
+
+                      <span>
+                        <b>Connected to Example Org</b>
+                        <small>
+                          Authenticated as jordan.davis@example.com
+                        </small>
+                      </span>
+
+                      <small>mypurecloud.com</small>
+                    </div>
+
                     <div className="preview-metrics">
-                      <div><small>EXPORT RUNS THIS MONTH</small><b>12</b><i>↻</i></div>
-                      <div><small>COMPLETED</small><b>10</b><i className="preview-green">✓</i></div>
-                      <div><small>DRAFTS / PLANNED</small><b>2</b><i className="preview-amber">▤</i></div>
-                      <div><small>RESOURCE GROUPS</small><b>4</b><i>⌘</i></div>
+                      <div>
+                        <small>EXPORT RUNS THIS MONTH</small>
+                        <b>12</b>
+                        <i>↻</i>
+                      </div>
+
+                      <div>
+                        <small>COMPLETED</small>
+                        <b>10</b>
+                        <i className="preview-green">✓</i>
+                      </div>
+
+                      <div>
+                        <small>DRAFTS / PLANNED</small>
+                        <b>2</b>
+                        <i className="preview-amber">▤</i>
+                      </div>
+
+                      <div>
+                        <small>RESOURCE GROUPS</small>
+                        <b>4</b>
+                        <i>⌘</i>
+                      </div>
                     </div>
-                    <div className="preview-section-title"><b>Export workflows</b><small>View all resources&nbsp; ›</small></div>
+
+                    <div className="preview-section-title">
+                      <b>Export workflows</b>
+                      <small>View all resources&nbsp; ›</small>
+                    </div>
+
                     <div className="preview-workflow">
-                      <i>⌘</i><span><b>Configuration export &amp; backup</b><small>Collect supported configuration and prepare a backup package.</small></span><em>Open workspace&nbsp; →</em>
+                      <i>⌘</i>
+
+                      <span>
+                        <b>Configuration export &amp; backup</b>
+                        <small>
+                          Collect supported configuration and prepare a
+                          backup package.
+                        </small>
+                      </span>
+
+                      <em>Open workspace&nbsp; →</em>
                     </div>
-                    <div className="preview-history"><b>Recent activity</b><span>Configuration backup <i>Completed</i></span><span>Configuration snapshot <i>Completed</i></span></div>
+
+                    <div className="preview-history">
+                      <b>Recent activity</b>
+                      <span>
+                        Configuration backup <i>Completed</i>
+                      </span>
+                      <span>
+                        Configuration snapshot <i>Completed</i>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+
             <div className="preview-caption">
-              <span><i /> ILLUSTRATIVE PREVIEW</span>
+              <span>
+                <i /> ILLUSTRATIVE PREVIEW
+              </span>
               <small>Export Manager overview</small>
             </div>
           </div>
         </section>
 
-        <section className="marketing-features" aria-label="Product highlights">
-          <article><span>01</span><div><b>See the big picture</b><p>Keep export activity and workspace status easy to review.</p></div></article>
-          <article><span>02</span><div><b>Organize your resources</b><p>Bring configuration groups and backup workflows together.</p></div></article>
-          <article><span>03</span><div><b>Stay in control</b><p>Sign in with your account to access your workspace.</p></div></article>
+        <section
+          className="marketing-features"
+          aria-label="Product highlights"
+        >
+          <article>
+            <span>01</span>
+            <div>
+              <b>See the big picture</b>
+              <p>
+                Keep export activity and workspace status easy to review.
+              </p>
+            </div>
+          </article>
+
+          <article>
+            <span>02</span>
+            <div>
+              <b>Organize your resources</b>
+              <p>
+                Bring configuration groups and backup workflows together.
+              </p>
+            </div>
+          </article>
+
+          <article>
+            <span>03</span>
+            <div>
+              <b>Stay in control</b>
+              <p>
+                Sign in with your account to access your workspace.
+              </p>
+            </div>
+          </article>
         </section>
       </main>
 
